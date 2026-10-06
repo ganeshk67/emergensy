@@ -1,0 +1,53 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owns(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      allow get, create, update: if owns(userId);
+      allow list, delete: if false;
+
+      match /alerts/{alertId} {
+        allow read: if owns(userId);
+        allow create: if owns(userId)
+          && request.resource.data.keys().hasOnly([
+            'type',
+            'situation',
+            'reason',
+            'location',
+            'status',
+            'latitude',
+            'longitude',
+            'createdAt'
+          ])
+          && request.resource.data.type == 'Critical'
+          && request.resource.data.status == 'prepared'
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+
+      match /appointments/{appointmentId} {
+        allow read: if owns(userId);
+        allow create: if owns(userId);
+        allow update: if owns(userId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'cancelledAt', 'updatedAt'])
+          && request.resource.data.status == 'cancelled';
+        allow delete: if false;
+      }
+
+      match /labBookings/{bookingId} {
+        allow read, create: if owns(userId);
+        allow update, delete: if false;
+      }
+
+      match /labResults/{resultId} {
+        allow read: if owns(userId);
+        allow write: if false;
+      }
+    }
+  }
+}
