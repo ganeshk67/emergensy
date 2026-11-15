@@ -40,6 +40,16 @@ dependencies:
   firebase_auth: ^6.7.0
   cloud_firestore: ^6.10.0
   http: ^1.6.0
+  qr_flutter: ^4.1.0
+  flutter_map: 8.2.1
+  latlong2: 0.9.1
+  cloud_functions: ^6.5.1
+  firebase_messaging: ^16.7.1
+  mobile_scanner: ^7.5.0
+  firebase_ai: ^4.0.0
+  firebase_app_check: ^0.4.9
+  record: ^7.2.0
+  flutter_pcm_sound: ^3.3.3
 dev_dependencies:
   flutter_test:
     sdk: flutter

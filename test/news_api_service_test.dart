@@ -14,8 +14,8 @@ void main() {
       );
       return http.Response(
         '{"status":"ok","items":[{"title":"Health update - Example News",'
-        '"description":"Latest update","link":"https://example.com/article",'
-        '"thumbnail":"https://example.com/image.jpg"}]}',
+        '"description":"<p>Latest update</p><img src=\\"https://example.com/image.jpg\\">",'
+        '"link":"https://example.com/article"}]}',
         200,
         headers: {'content-type': 'application/json'},
       );

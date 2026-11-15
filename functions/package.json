@@ -1,0 +1,17 @@
+{
+  "name": "emergensy-functions",
+  "private": true,
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.js",
+  "scripts": {
+    "lint": "node --check index.js && node --check doctor-invites.js && node --check scripts/set-doctor-claims.js && node --check scripts/manage-doctor-invite.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@google-cloud/vertexai": "^1.12.0",
+    "firebase-admin": "^14.5.1",
+    "firebase-functions": "^7.4.0"
+  }
+}

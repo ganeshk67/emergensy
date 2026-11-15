@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Your location helps you tell emergency services where help is needed. It is not sent by the app.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Allow microphone access so you can speak with the Emergensy voice assistant.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Use the camera to scan a patient’s consented health QR profile.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

@@ -6,8 +6,28 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    function doctorAt(facilityId) {
+      return request.auth != null
+        && request.auth.token.role == 'doctor'
+        && request.auth.token.facilityId == facilityId;
+    }
+
     match /users/{userId} {
-      allow get, create, update: if owns(userId);
+      allow get: if owns(userId);
+      allow create: if owns(userId)
+        && !request.resource.data.keys().hasAny([
+          'role',
+          'facilityId',
+          'facilityName',
+          'doctorName'
+        ]);
+      allow update: if owns(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role',
+          'facilityId',
+          'facilityName',
+          'doctorName'
+        ]);
       allow list, delete: if false;
 
       match /alerts/{alertId} {
@@ -31,7 +51,9 @@ service cloud.firestore {
 
       match /appointments/{appointmentId} {
         allow read: if owns(userId);
-        allow create: if owns(userId);
+        allow create: if owns(userId)
+          && request.resource.data.patientUid == userId
+          && request.resource.data.status == 'requested';
         allow update: if owns(userId)
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['status', 'cancelledAt', 'updatedAt'])
@@ -48,6 +70,66 @@ service cloud.firestore {
         allow read: if owns(userId);
         allow write: if false;
       }
+
+      match /aiSummaryConsents/{resultId} {
+        allow read: if owns(userId);
+        allow create: if owns(userId)
+          && request.resource.data.keys().hasOnly([
+            'accepted',
+            'version',
+            'createdAt'
+          ])
+          && request.resource.data.accepted == true
+          && request.resource.data.version == '2026-01'
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+    }
+
+    match /appointments/{appointmentId} {
+      allow read: if owns(resource.data.patientUid)
+        || doctorAt(resource.data.facilityId);
+      allow create: if request.auth != null
+        && request.resource.data.patientUid == request.auth.uid
+        && request.resource.data.status == 'requested'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.keys().hasOnly([
+          'patientUid',
+          'patient',
+          'memberId',
+          'memberName',
+          'mode',
+          'doctor',
+          'specialty',
+          'date',
+          'slot',
+          'reason',
+          'area',
+          'availabilityId',
+          'facilityId',
+          'hospitalId',
+          'hospitalName',
+          'hospitalAddress',
+          'hospitalLatitude',
+          'hospitalLongitude',
+          'status',
+          'createdAt'
+        ])
+        && (request.resource.data.mode != 'In-person'
+          || (request.resource.data.facilityId is string
+            && request.resource.data.facilityId == request.resource.data.hospitalId
+            && request.resource.data.hospitalName is string));
+      allow update, delete: if false;
+    }
+
+    match /facilities/{facilityId}/availability/{slotId} {
+      allow read: if true;
+      allow create: if doctorAt(facilityId)
+        && request.resource.data.facilityId == facilityId
+        && request.resource.data.status == 'available'
+        && request.resource.data.date is string
+        && request.resource.data.slot is string;
+      allow update, delete: if doctorAt(facilityId);
     }
   }
 }

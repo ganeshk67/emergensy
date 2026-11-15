@@ -4,20 +4,50 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeAuthRepository implements AppAuthRepository {
-  @override
-  AppUser? get currentUser =>
-      const AppUser(uid: 'test-user', email: 'test@example.com');
+  String? registeredDoctorInviteCode;
+
+  AppUser signedInUser = const AppUser(
+    uid: 'test-user',
+    email: 'test@example.com',
+  );
 
   @override
-  Stream<AppUser?> authChanges() => Stream.value(currentUser);
+  AppUser? get currentUser => signedInUser;
+
+  @override
+  Stream<AppUser?> authChanges() => Stream.value(signedInUser);
 
   @override
   Future<AppUser> register(String name, String email, String password) async =>
       AppUser(uid: 'test-user', email: email, displayName: name);
 
   @override
-  Future<AppUser> signIn(String email, String password) async =>
-      AppUser(uid: 'test-user', email: email);
+  Future<AppUser> registerDoctor(
+    String name,
+    String email,
+    String password,
+    String inviteCode,
+  ) async {
+    registeredDoctorInviteCode = inviteCode;
+    return AppUser(
+      uid: 'doctor-user',
+      email: email,
+      displayName: name,
+      isDoctor: true,
+      facilityId: 'clinic-123',
+    );
+  }
+
+  @override
+  Future<AppUser> signIn(String email, String password) async => signedInUser;
+
+  @override
+  Future<AppUser> signInDoctor(
+    String email,
+    String password,
+    String inviteCode,
+    String doctorName,
+  ) async => signedInUser;
 
   @override
   Future<void> sendPasswordReset(String email) async {}
@@ -29,7 +59,9 @@ class _FakeAuthRepository implements AppAuthRepository {
 class _FakeDataRepository implements AppDataRepository {
   final List<Map<String, Object?>> emergencyAlerts = [];
   final List<Map<String, Object?>> appointments = [];
+  final List<Map<String, Object?>> availability = [];
   final List<Map<String, Object?>> labBookings = [];
+  Map<String, Object?> profileData = {};
 
   @override
   Future<void> saveEmergencyAlert(
@@ -48,6 +80,35 @@ class _FakeDataRepository implements AppDataRepository {
   @override
   Stream<List<Map<String, Object?>>> watchAppointments(String uid) =>
       Stream.value(appointments);
+  @override
+  Stream<List<Map<String, Object?>>> watchFacilityAppointments(
+    String facilityId,
+  ) => Stream.value(
+    appointments
+        .where((appointment) => appointment['facilityId'] == facilityId)
+        .toList(),
+  );
+
+  @override
+  Future<void> reviewAppointment(String appointmentId, String status) async {
+    for (final appointment in appointments) {
+      if (appointment['id'] == appointmentId) {
+        appointment['status'] = status;
+      }
+    }
+  }
+
+  @override
+  Stream<List<Map<String, Object?>>> watchAvailability(String facilityId) =>
+      Stream.value(availability);
+
+  @override
+  Future<void> publishAvailability(
+    String facilityId,
+    Map<String, Object?> data,
+  ) async {
+    availability.add({...data, 'facilityId': facilityId});
+  }
 
   @override
   Future<void> saveLabBooking(String uid, Map<String, Object?> data) async {
@@ -61,6 +122,29 @@ class _FakeDataRepository implements AppDataRepository {
   @override
   Stream<List<Map<String, Object?>>> watchLabResults(String uid) =>
       Stream.value(const []);
+
+  @override
+  Future<String> summarizeLabResult(String uid, String resultId) async =>
+      'Summary for $resultId';
+
+  @override
+  Stream<Map<String, Object?>> watchProfileData(String uid) =>
+      Stream.value(profileData);
+
+  @override
+  Future<void> saveProfileData(String uid, Map<String, Object?> data) async {
+    profileData = {...profileData, ...data};
+  }
+
+  @override
+  Future<void> saveMessagingToken(String uid, String token) async {
+    profileData['fcmToken'] = token;
+  }
+
+  @override
+  Future<void> removeMessagingToken(String uid, String token) async {
+    if (profileData['fcmToken'] == token) profileData.remove('fcmToken');
+  }
 }
 
 void main() {
@@ -71,6 +155,23 @@ void main() {
     MyApp(authRepository: authRepository, dataRepository: dataRepository),
   );
 
+  Future<void> tapText(WidgetTester tester, String title) async {
+    final target = find.text(title);
+    await tester.ensureVisible(target);
+    await tester.pumpAndSettle();
+    await tester.tap(target);
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> tapHomeFeature(WidgetTester tester, String title) async {
+    final target = find.text(title);
+    for (var attempt = 0; target.evaluate().isEmpty && attempt < 8; attempt++) {
+      await tester.drag(find.byType(ListView).first, const Offset(0, -500));
+      await tester.pumpAndSettle();
+    }
+    await tapText(tester, title);
+  }
+
   testWidgets('dark home presents the emergency and section buttons', (
     tester,
   ) async {
@@ -80,16 +181,144 @@ void main() {
       Theme.of(tester.element(find.byType(AppShell))).brightness,
       Brightness.dark,
     );
+    expect(
+      find.text('Location shared only when you request help'),
+      findsOneWidget,
+    );
     expect(find.text('WHEN IT\nMATTERS.'), findsOneWidget);
     expect(find.text('Get help'), findsOneWidget);
-    await tester.drag(find.byType(ListView).first, const Offset(0, -500));
+    await tester.drag(find.byType(ListView).first, const Offset(0, -1000));
     await tester.pumpAndSettle();
     expect(find.text('First-aid guide'), findsOneWidget);
     expect(find.text('Health essentials'), findsOneWidget);
     expect(find.text('Health news'), findsOneWidget);
     expect(find.text('Doctor appointments'), findsOneWidget);
-    expect(find.text('Lab tests & results'), findsOneWidget);
+    expect(find.text('Lab tests'), findsOneWidget);
     expect(find.text('What happened?'), findsNothing);
+  });
+
+  testWidgets('home opens the voice assistant', (tester) async {
+    await pumpApp(tester);
+
+    await tapHomeFeature(tester, 'Voice assistant');
+
+    expect(find.text('Voice assistant'), findsOneWidget);
+    expect(find.text('Tap to start talking'), findsOneWidget);
+    expect(find.byIcon(Icons.mic_rounded), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.mic_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('Voice and AI processing'), findsOneWidget);
+    await tester.tap(find.text('Not now'));
+    await tester.pumpAndSettle();
+    expect(find.text('Tap to start talking'), findsOneWidget);
+  });
+
+  testWidgets('bottom navigation opens appointments and resets on return', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    await tester.tap(find.text('Appointments').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Talk to a doctor.'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(find.byType(HomePage), findsOneWidget);
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      0,
+    );
+  });
+
+  testWidgets('dashboard navigation fits a narrow phone screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await pumpApp(tester);
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('verified doctor custom claim opens doctor workspace', (
+    tester,
+  ) async {
+    final previousUser = authRepository.signedInUser;
+    authRepository.signedInUser = const AppUser(
+      uid: 'verified-doctor',
+      email: 'doctor@example.com',
+      isDoctor: true,
+      facilityId: 'clinic-123',
+      facilityName: 'North Clinic',
+      doctorName: 'Dr. Example',
+    );
+    addTearDown(() => authRepository.signedInUser = previousUser);
+
+    await pumpApp(tester);
+
+    expect(find.text('Doctor workspace'), findsOneWidget);
+    expect(find.text('North Clinic'), findsOneWidget);
+    expect(find.text('Welcome, Dr. Example'), findsOneWidget);
+  });
+
+  testWidgets('doctor demo uses synthetic data without backend writes', (
+    tester,
+  ) async {
+    final appointmentCount = dataRepository.appointments.length;
+    await tester.pumpWidget(
+      MaterialApp(home: SignInPage(authRepository: authRepository)),
+    );
+
+    await tester.tap(find.text('Doctor'));
+    await tester.pumpAndSettle();
+    expect(find.text('Try doctor demo'), findsOneWidget);
+    await tapText(tester, 'Try doctor demo');
+
+    expect(find.text('Doctor demo'), findsOneWidget);
+    expect(find.text('SAMPLE PATIENT 001'), findsOneWidget);
+    expect(
+      find.textContaining('Everything below is synthetic sample data'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Approve sample').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Approved · demo'), findsOneWidget);
+    expect(dataRepository.appointments, hasLength(appointmentCount));
+  });
+
+  testWidgets('doctor registration requires and submits a clinic invite code', (
+    tester,
+  ) async {
+    authRepository.registeredDoctorInviteCode = null;
+    await tester.pumpWidget(
+      MaterialApp(home: SignInPage(authRepository: authRepository)),
+    );
+
+    await tester.tap(find.text('Doctor'));
+    await tester.pumpAndSettle();
+    await tapText(tester, 'New doctor? Create an account');
+    expect(find.text('Clinic invite code'), findsOneWidget);
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'Dr. Example');
+    await tester.enterText(fields.at(1), 'NorthClinic-Invite-2026');
+    await tester.enterText(fields.at(2), 'doctor@example.com');
+    await tester.enterText(fields.at(3), 'secure-password');
+    await tapText(tester, 'Create account');
+
+    expect(
+      authRepository.registeredDoctorInviteCode,
+      'NorthClinic-Invite-2026',
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('emergency request captures reason and manual location', (
@@ -111,7 +340,10 @@ void main() {
     expect(find.text('Call 112 now'), findsOneWidget);
     expect(find.text('Severe bleeding'), findsOneWidget);
     expect(find.text('12 Main Street, Pune'), findsOneWidget);
-    expect(find.textContaining('SOS details saved to your account'), findsOneWidget);
+    expect(
+      find.textContaining('SOS details saved to your account'),
+      findsOneWidget,
+    );
     expect(dataRepository.emergencyAlerts, hasLength(1));
     expect(dataRepository.emergencyAlerts.single['type'], 'Critical');
     expect(
@@ -124,10 +356,34 @@ void main() {
     expect(find.textContaining('Press firmly on the wound'), findsOneWidget);
   });
 
+  testWidgets('saved emergency contact is available during guidance', (
+    tester,
+  ) async {
+    final previousProfile = dataRepository.profileData;
+    dataRepository.profileData = {
+      ...previousProfile,
+      'emergencyContactName': 'Asha',
+      'emergencyContactPhone': '+911234567890',
+    };
+    addTearDown(() => dataRepository.profileData = previousProfile);
+
+    await pumpApp(tester);
+    await tester.tap(find.text('Get help'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Severe bleeding'));
+    await tester.enterText(find.byType(TextField).last, '12 Main Street, Pune');
+    await tester.drag(find.byType(ListView).last, const Offset(0, -600));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Show immediate safety steps'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Call 112 now'), findsOneWidget);
+    expect(find.text('Call Asha'), findsOneWidget);
+  });
+
   testWidgets('shop allows adding an item to the cart', (tester) async {
     await pumpApp(tester);
-    await tester.tap(find.text('Shop'));
-    await tester.pumpAndSettle();
+    await tapHomeFeature(tester, 'Health essentials');
 
     expect(find.text('Health essentials'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, 'Add').first);
@@ -135,12 +391,15 @@ void main() {
 
     expect(find.text('1 item'), findsOneWidget);
     expect(find.text('₹89'), findsNWidgets(2));
+    expect(find.byTooltip('Back'), findsOneWidget);
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(find.text('Health essentials'), findsOneWidget);
   });
 
   testWidgets('first aid tab shows safety guidance', (tester) async {
     await pumpApp(tester);
-    await tester.tap(find.text('First aid').last);
-    await tester.pumpAndSettle();
+    await tapHomeFeature(tester, 'First-aid guide');
 
     expect(find.text('Simple guidance for common situations'), findsOneWidget);
     expect(find.text('Minor bleeding'), findsOneWidget);
@@ -151,20 +410,20 @@ void main() {
     tester,
   ) async {
     await pumpApp(tester);
-    await tester.tap(find.text('News'));
-    await tester.pumpAndSettle();
+    await tapHomeFeature(tester, 'Health news');
 
     expect(find.text('Health news'), findsOneWidget);
     expect(find.text('Headlines unavailable'), findsOneWidget);
     expect(find.text('Try again'), findsOneWidget);
   });
 
-  testWidgets('doctor appointment request can be reviewed', (tester) async {
+  testWidgets('in-person booking requires a clinic and online requests save', (
+    tester,
+  ) async {
     await pumpApp(tester);
     await tester.drag(find.byType(ListView).first, const Offset(0, -800));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Doctor appointments'));
-    await tester.pumpAndSettle();
+    await tapHomeFeature(tester, 'Doctor appointments');
 
     expect(find.text('Talk to a doctor.'), findsOneWidget);
     expect(find.text('Online'), findsOneWidget);
@@ -176,12 +435,41 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Book appointment'));
     await tester.pumpAndSettle();
+    expect(find.text('My requests'), findsNothing);
+    expect(
+      find.text(
+        'Choose a nearby hospital or clinic from the map for an in-person request.',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.drag(find.byType(ListView).last, const Offset(0, 1000));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Online').first);
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).last, const Offset(0, -900));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Book appointment'));
+    await tester.pumpAndSettle();
 
     expect(find.text('My requests'), findsOneWidget);
     expect(find.text('Dr. Asha Mehta'), findsOneWidget);
     expect(find.text('requested'), findsOneWidget);
-    expect(find.textContaining('not sent to a clinic'), findsOneWidget);
-    expect(find.textContaining('Area: Pune'), findsOneWidget);
+    expect(find.textContaining('Online requests stay'), findsOneWidget);
+  });
+
+  testWidgets('hospital homepage card opens offline booking with map option', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    await tapHomeFeature(tester, 'Hospitals & offline visits');
+
+    expect(find.text('Doctor appointments'), findsOneWidget);
+    expect(find.text('Choose a nearby hospital or clinic'), findsOneWidget);
+    expect(find.byTooltip('Back'), findsOneWidget);
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(find.text('Hospitals & offline visits'), findsOneWidget);
   });
 
   testWidgets('lab test request is stored and displayed in results', (
@@ -190,8 +478,7 @@ void main() {
     await pumpApp(tester);
     await tester.drag(find.byType(ListView).first, const Offset(0, -800));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Lab tests & results'));
-    await tester.pumpAndSettle();
+    await tapHomeFeature(tester, 'Lab tests');
 
     expect(find.text('Book a lab test.'), findsOneWidget);
     await tester.tap(find.text('Blood glucose — fasting'));
@@ -205,5 +492,123 @@ void main() {
     expect(find.text('1 test(s) · Sam Example'), findsOneWidget);
     expect(find.text('requested'), findsOneWidget);
     expect(find.textContaining('Not yet sent to a lab'), findsOneWidget);
+  });
+
+  testWidgets('profile switches themes and opens QR profile', (tester) async {
+    await pumpApp(tester);
+    await tapHomeFeature(tester, 'Profile & settings');
+
+    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+    await tester.pumpAndSettle();
+    expect(find.text('Dark mode'), findsOneWidget);
+    await tester.tap(find.byType(Switch).first);
+    await tester.pumpAndSettle();
+    expect(
+      Theme.of(tester.element(find.text('Dark mode'))).brightness,
+      Brightness.light,
+    );
+    expect(dataRepository.profileData['darkMode'], isFalse);
+    await tester.tap(find.byType(Switch).first);
+    await tester.pumpAndSettle();
+    expect(
+      Theme.of(tester.element(find.text('Dark mode'))).brightness,
+      Brightness.dark,
+    );
+    expect(dataRepository.profileData['darkMode'], isTrue);
+
+    await tester.drag(find.byType(ListView).last, const Offset(0, 600));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Edit profile'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(1), 'A+');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Emergency QR profile'));
+    await tester.pumpAndSettle();
+    expect(find.text('Emergency QR profile'), findsOneWidget);
+    expect(
+      find.text('Choose at least one detail above to create your QR code.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.byType(CheckboxListTile).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(CheckboxListTile).at(1));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Only the details you selected are encoded.'),
+      findsOneWidget,
+    );
+    expect(dataRepository.profileData['qrConsentName'], isTrue);
+    expect(dataRepository.profileData['qrConsentBlood'], isTrue);
+  });
+
+  testWidgets('health timeline adds a report and consultation summary', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    await tapHomeFeature(tester, 'Profile & settings');
+    await tapText(tester, 'Health timeline');
+    await tester.tap(find.text('Add report summary'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(0), 'Blood test');
+    await tester.enterText(find.byType(TextField).at(1), 'Routine check');
+    await tester.enterText(
+      find.byType(TextField).at(2),
+      'Hemoglobin: 13.2 g/dL',
+    );
+    await tester.tap(find.text('Add to timeline'));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+    await tester.pumpAndSettle();
+    expect(find.text('Blood test'), findsOneWidget);
+    expect(find.text('Hemoglobin: 13.2 g/dL'), findsOneWidget);
+    await tester.drag(find.byType(ListView).last, const Offset(0, -700));
+    await tester.pumpAndSettle();
+    expect(find.text('Doctor consultation summary'), findsOneWidget);
+    expect(dataRepository.profileData['healthRecords'], hasLength(1));
+  });
+
+  testWidgets('family profile requires authorization before it can be added', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    await tapHomeFeature(tester, 'Profile & settings');
+    await tapText(tester, 'Family guardian mode');
+    await tester.tap(find.text('Add family profile'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(0), 'Asha Example');
+    await tester.enterText(find.byType(TextField).at(1), 'Parent');
+    await tester.tap(find.text('Add profile'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Confirm you have their permission first.'),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.text('I have their permission to manage this profile.'),
+    );
+    await tester.tap(find.text('Add profile'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Asha Example'), findsOneWidget);
+    expect(dataRepository.profileData['familyProfiles'], hasLength(1));
+    expect(find.text('Book appointment'), findsOneWidget);
+    await tester.tap(find.text('Book appointment'));
+    await tester.pumpAndSettle();
+    expect(find.text('Booking for'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+      'Asha Example',
+    );
+    await tester.drag(find.byType(ListView).last, const Offset(0, -900));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Book appointment'));
+    await tester.pumpAndSettle();
+    expect(dataRepository.appointments.first['memberName'], 'Asha Example');
+    expect(
+      dataRepository.appointments.first['memberId'],
+      (dataRepository.profileData['familyProfiles'] as List).single['id'],
+    );
   });
 }
