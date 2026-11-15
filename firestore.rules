@@ -66,6 +66,27 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      match /reminders/{reminderId} {
+        allow read: if owns(userId);
+        allow create: if owns(userId)
+          && request.resource.data.keys().hasOnly([
+            'title',
+            'details',
+            'reminderAt',
+            'status',
+            'createdAt'
+          ])
+          && request.resource.data.title is string
+          && request.resource.data.title.size() > 0
+          && request.resource.data.title.size() <= 120
+          && request.resource.data.details is string
+          && request.resource.data.details.size() <= 500
+          && request.resource.data.reminderAt is timestamp
+          && request.resource.data.status == 'scheduled'
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+
       match /labResults/{resultId} {
         allow read: if owns(userId);
         allow write: if false;

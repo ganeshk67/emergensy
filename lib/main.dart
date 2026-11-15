@@ -986,7 +986,14 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _openVoiceAssistant() {
-    _pushPage(const VoiceAssistantPage());
+    _pushPage(
+      VoiceAssistantPage(
+        user: widget.user,
+        repository: widget.dataRepository,
+        familyProfiles: _familyProfiles,
+        patientName: widget.user.displayName?.trim() ?? '',
+      ),
+    );
   }
 
   void _openProfile() {

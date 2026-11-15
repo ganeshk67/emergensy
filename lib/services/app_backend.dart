@@ -281,6 +281,8 @@ abstract interface class AppDataRepository {
     Map<String, Object?> data,
   );
   Future<void> saveLabBooking(String uid, Map<String, Object?> data);
+  Future<void> saveReminder(String uid, Map<String, Object?> data);
+  Stream<List<Map<String, Object?>>> watchReminders(String uid);
   Stream<List<Map<String, Object?>>> watchLabBookings(String uid);
   Stream<List<Map<String, Object?>>> watchLabResults(String uid);
   Future<String> summarizeLabResult(String uid, String resultId);
@@ -381,6 +383,19 @@ class FirestoreDataRepository implements AppDataRepository {
       'labBookings',
     ).add({...data, 'createdAt': FieldValue.serverTimestamp()});
   }
+
+  @override
+  Future<void> saveReminder(String uid, Map<String, Object?> data) async {
+    await _collection(uid, 'reminders').add({
+      ...data,
+      'status': 'scheduled',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
+  Stream<List<Map<String, Object?>>> watchReminders(String uid) =>
+      _watch(_collection(uid, 'reminders'));
 
   @override
   Stream<List<Map<String, Object?>>> watchLabBookings(String uid) =>

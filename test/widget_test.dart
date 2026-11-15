@@ -61,6 +61,7 @@ class _FakeDataRepository implements AppDataRepository {
   final List<Map<String, Object?>> appointments = [];
   final List<Map<String, Object?>> availability = [];
   final List<Map<String, Object?>> labBookings = [];
+  final List<Map<String, Object?>> reminders = [];
   Map<String, Object?> profileData = {};
 
   @override
@@ -114,6 +115,15 @@ class _FakeDataRepository implements AppDataRepository {
   Future<void> saveLabBooking(String uid, Map<String, Object?> data) async {
     labBookings.insert(0, {...data});
   }
+
+  @override
+  Future<void> saveReminder(String uid, Map<String, Object?> data) async {
+    reminders.insert(0, {...data});
+  }
+
+  @override
+  Stream<List<Map<String, Object?>>> watchReminders(String uid) =>
+      Stream.value(reminders);
 
   @override
   Stream<List<Map<String, Object?>>> watchLabBookings(String uid) =>

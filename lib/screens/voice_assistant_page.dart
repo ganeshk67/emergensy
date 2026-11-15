@@ -1,12 +1,24 @@
 import 'dart:async';
 
 import 'package:emergensy/services/voice_agent_service.dart';
+import 'package:emergensy/services/app_backend.dart';
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 class VoiceAssistantPage extends StatefulWidget {
-  const VoiceAssistantPage({super.key});
+  const VoiceAssistantPage({
+    required this.user,
+    required this.repository,
+    this.familyProfiles = const [],
+    this.patientName = '',
+    super.key,
+  });
+
+  final AppUser user;
+  final AppDataRepository repository;
+  final List<Map<String, Object?>> familyProfiles;
+  final String patientName;
 
   @override
   State<VoiceAssistantPage> createState() => _VoiceAssistantPageState();
@@ -31,6 +43,10 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _agent = VoiceAgentService(
+      uid: widget.user.uid,
+      repository: widget.repository,
+      patientName: widget.patientName,
+      familyProfiles: widget.familyProfiles,
       onPhaseChanged: (phase) {
         if (mounted) setState(() => _phase = phase);
       },
