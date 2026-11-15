@@ -68,7 +68,8 @@ class VoiceAgentService {
   bool _isBrowserSessionActive = false;
   int _queuedAudioChunks = 0;
   int _generation = 0;
-  ChatSession? _browserChat;
+  GenerativeModel? _browserModel;
+  final List<Content> _browserHistory = [];
   Timer? _browserTurnTimer;
   String _browserFinalTranscript = '';
   String _browserInterimTranscript = '';
@@ -95,9 +96,9 @@ class VoiceAgentService {
 
   List<Tool> get _browserTools => [
     Tool.functionDeclarations([
-      AutoFunctionDeclaration(
-        name: 'prepare_doctor_appointment',
-        description: 'Prepare an online appointment request after collecting patient, doctor, date, time, and reason. This only prepares a draft. Never claim it is booked until confirm_pending_action succeeds.',
+      FunctionDeclaration(
+        'prepare_doctor_appointment',
+        'Prepare an online appointment request after collecting patient, doctor, date, time, and reason. This only prepares a draft. Never claim it is booked until confirm_pending_action succeeds.',
         parameters: {
           'doctor': Schema.string(),
           'date': Schema.string(),
@@ -114,11 +115,10 @@ class VoiceAgentService {
           'reason',
           'mode',
         ],
-        callable: _prepareAppointment,
       ),
-      AutoFunctionDeclaration(
-        name: 'prepare_lab_request',
-        description: 'Prepare a lab test request after collecting patient, test names, date, and collection choice. This only prepares a draft, never save it until the user confirms.',
+      FunctionDeclaration(
+        'prepare_lab_request',
+        'Prepare a lab test request after collecting patient, test names, date, and collection choice. This only prepares a draft, never save it until the user confirms.',
         parameters: {
           'tests': Schema.array(items: Schema.string()),
           'date': Schema.string(),
@@ -126,36 +126,31 @@ class VoiceAgentService {
           'collection': Schema.string(),
         },
         optionalParameters: ['tests', 'date', 'patient', 'collection'],
-        callable: _prepareLabRequest,
       ),
-      AutoFunctionDeclaration(
-        name: 'prepare_reminder',
-        description: 'Prepare a personal reminder with a title and exact future date-time. This only prepares a draft, never save it until the user confirms.',
+      FunctionDeclaration(
+        'prepare_reminder',
+        'Prepare a personal reminder with a title and exact future date-time. This only prepares a draft, never save it until the user confirms.',
         parameters: {
           'title': Schema.string(),
           'details': Schema.string(),
           'date_time': Schema.string(),
         },
         optionalParameters: ['title', 'details', 'date_time'],
-        callable: _prepareReminder,
       ),
-      AutoFunctionDeclaration(
-        name: 'confirm_pending_action',
-        description: 'Save the pending appointment, lab request, or reminder only after the user clearly confirms it in their latest message.',
+      FunctionDeclaration(
+        'confirm_pending_action',
+        'Save the pending appointment, lab request, or reminder only after the user clearly confirms it in their latest message.',
         parameters: const {},
-        callable: _confirmPendingAction,
       ),
-      AutoFunctionDeclaration(
-        name: 'cancel_pending_action',
-        description: 'Cancel and discard the currently prepared action when the user says no or cancels.',
+      FunctionDeclaration(
+        'cancel_pending_action',
+        'Cancel and discard the currently prepared action when the user says no or cancels.',
         parameters: const {},
-        callable: _cancelPendingAction,
       ),
-      AutoFunctionDeclaration(
-        name: 'list_my_reminders',
-        description: 'List the signed-in user\'s saved reminders.',
+      FunctionDeclaration(
+        'list_my_reminders',
+        'List the signed-in user\'s saved reminders.',
         parameters: const {},
-        callable: _listReminders,
       ),
     ]),
   ];
@@ -430,6 +425,25 @@ Emergensy app features: Emergency SOS prepares an alert and does not dispatch re
 
 For requests, ask one question at a time for missing details. Use ISO dates and exact app options. Never invent availability. For appointments and lab requests, distinguish a saved request from a real provider confirmation. For reminders, clearly say that on web the reminder is stored but browser push notifications are not configured, so it may not alert when the app is closed. When any action tool prepares a draft, read back every important detail and wait for a separate clear yes before calling confirm_pending_action. Never infer confirmation from the original booking request.''';
 
+  Future<Map<String, Object?>> _runBrowserFunction(
+    String name,
+    Map<String, Object?> args,
+  ) async {
+    return switch (name) {
+      'prepare_doctor_appointment' => _prepareAppointment(args),
+      'prepare_lab_request' => _prepareLabRequest(args),
+      'prepare_reminder' => _prepareReminder(args),
+      'confirm_pending_action' => _confirmationAllowed
+          ? _confirmPendingAction(args)
+          : Future.value({
+              'result': 'The latest user message did not clearly confirm this action. Ask for confirmation; nothing was saved.',
+            }),
+      'cancel_pending_action' => _cancelPendingAction(args),
+      'list_my_reminders' => _listReminders(args),
+      _ => Future.value({'result': 'Unsupported action; nothing was changed.'}),
+    };
+  }
+
   static String _stringArg(Map<String, Object?> args, String key) =>
       args[key] is String ? (args[key] as String).trim() : '';
 
@@ -599,7 +613,8 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
       _browserVoice
         ..stop()
         ..stopSpeaking();
-      _browserChat = null;
+      _browserModel = null;
+      _browserHistory.clear();
       _pendingAction = null;
       _confirmationAllowed = false;
       _browserFinalTranscript = '';
@@ -665,7 +680,8 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
     );
     if (!_isCurrent(generation)) return;
 
-    _browserChat = model.startChat();
+    _browserModel = model;
+    _browserHistory.clear();
     _isBrowserSessionActive = true;
     _startBrowserRecognition();
     onPhaseChanged(VoiceAgentPhase.listening);
@@ -725,8 +741,9 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
     onPhaseChanged(VoiceAgentPhase.thinking);
 
     try {
-      final chat = _browserChat;
-      if (chat == null) return;
+      final model = _browserModel;
+      if (model == null) return;
+      final requestHistory = <Content>[..._browserHistory, Content.text(userText)];
       final answer = StringBuffer();
       final pendingSpeech = StringBuffer();
       var pendingUtterances = 0;
@@ -787,16 +804,46 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
         }
       }
 
-      await for (final chunk in chat.sendMessageStream(
-        Content.text(userText),
-      )) {
+      var toolTurns = 0;
+      while (true) {
+        final turnContent = <Content>[];
+        final functionCalls = <FunctionCall>[];
+        await for (final chunk in model.generateContentStream(requestHistory)) {
+          if (!_isBrowserSessionActive || _isStopping) return;
+          final candidate = chunk.candidates.firstOrNull;
+          if (candidate != null) turnContent.add(candidate.content);
+          functionCalls.addAll(chunk.functionCalls);
+          final text = chunk.text;
+          if (text == null || text.isEmpty) continue;
+          answer.write(text);
+          pendingSpeech.write(text);
+          onAssistantTranscript(answer.toString().trim());
+          queueCompletedSentences();
+        }
         if (!_isBrowserSessionActive || _isStopping) return;
-        final text = chunk.text;
-        if (text == null || text.isEmpty) continue;
-        answer.write(text);
-        pendingSpeech.write(text);
-        onAssistantTranscript(answer.toString().trim());
-        queueCompletedSentences();
+        if (functionCalls.isEmpty) {
+          _browserHistory
+            ..add(Content.text(userText))
+            ..add(Content.model(
+              turnContent.expand((content) => content.parts),
+            ));
+          break;
+        }
+        if (++toolTurns > 5) {
+          throw StateError('The assistant requested too many tool actions.');
+        }
+        final modelParts = turnContent.expand((content) => content.parts).toList();
+        if (modelParts.isNotEmpty) requestHistory.add(Content.model(modelParts));
+        final responses = <FunctionResponse>[];
+        for (final call in functionCalls) {
+          final result = await _runBrowserFunction(call.name, call.args);
+          responses.add(FunctionResponse(call.name, result, id: call.id));
+        }
+        // Gemini accepts function results as user content. The SDK's
+        // AutoFunctionDeclaration path uses the unsupported `function` role.
+        requestHistory.add(Content('user', responses));
+        answer.clear();
+        pendingSpeech.clear();
       }
       if (!_isBrowserSessionActive || _isStopping) return;
 
