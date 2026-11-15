@@ -9,6 +9,7 @@
     if (!Recognition) return null;
 
     const instance = new Recognition();
+    const finalTranscriptByIndex = new Map();
     instance.lang = global.navigator.language || 'en-IN';
     instance.continuous = true;
     instance.interimResults = true;
@@ -19,7 +20,11 @@
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
         if (result.isFinal) {
-          finalText += result[0].transcript;
+          const transcript = result[0].transcript;
+          if (finalTranscriptByIndex.get(i) !== transcript) {
+            finalText += transcript;
+            finalTranscriptByIndex.set(i, transcript);
+          }
         } else {
           interimText += result[0].transcript;
         }
@@ -39,7 +44,8 @@
         global.setTimeout(() => {
           if (!restartRecognition) return;
           try {
-            instance.start();
+            recognition = createRecognition();
+            recognition.start();
           } catch (_) {
             // Chrome can emit onend while a restart is already in progress.
           }
@@ -72,7 +78,6 @@
         onError('speech-synthesis-unavailable');
         return;
       }
-      global.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = global.navigator.language || 'en-IN';
       utterance.rate = 0.92;

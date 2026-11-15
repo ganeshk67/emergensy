@@ -14,7 +14,7 @@ import 'voice_audio_output_stub.dart'
     if (dart.library.js_interop) 'voice_audio_output_web.dart'
     as browser_audio;
 
-enum VoiceAgentPhase { idle, connecting, listening, speaking, error }
+enum VoiceAgentPhase { idle, connecting, thinking, listening, speaking, error }
 
 class VoiceAgentService {
   VoiceAgentService({
@@ -240,7 +240,8 @@ class VoiceAgentService {
 
   Future<void> _startBrowserConversation(int generation) async {
     final model = FirebaseAI.googleAI().generativeModel(
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.5-flash-lite',
+      generationConfig: GenerationConfig(maxOutputTokens: 220),
       systemInstruction: Content.system(_systemInstruction),
     );
     if (!_isCurrent(generation)) return;
@@ -266,7 +267,7 @@ class VoiceAgentService {
         if (finalText.isNotEmpty) {
           _browserTurnTimer?.cancel();
           _browserTurnTimer = Timer(
-            const Duration(milliseconds: 800),
+            const Duration(milliseconds: 500),
             () => unawaited(_sendBrowserTurn()),
           );
         }
@@ -297,36 +298,92 @@ class VoiceAgentService {
 
     _browserVoice.stop();
     onUserTranscript(userText);
-    onPhaseChanged(VoiceAgentPhase.connecting);
+    onPhaseChanged(VoiceAgentPhase.thinking);
 
     try {
       final chat = _browserChat;
       if (chat == null) return;
-      final response = await chat.sendMessage(Content.text(userText));
+      final answer = StringBuffer();
+      final pendingSpeech = StringBuffer();
+      var pendingUtterances = 0;
+      var generationFinished = false;
+      var hasQueuedSpeech = false;
+      Object? speechError;
+      final speechFinished = Completer<void>();
+
+      void finishSpeechIfReady() {
+        if (!generationFinished ||
+            pendingUtterances != 0 ||
+            speechFinished.isCompleted) {
+          return;
+        }
+        if (speechError case final error?) {
+          speechFinished.completeError(error);
+        } else {
+          speechFinished.complete();
+        }
+      }
+
+      void queueSpeech(String sentence) {
+        final text = sentence.trim();
+        if (text.isEmpty || !_isBrowserSessionActive || _isStopping) return;
+        if (!hasQueuedSpeech) {
+          hasQueuedSpeech = true;
+          onPhaseChanged(VoiceAgentPhase.speaking);
+        }
+        pendingUtterances++;
+        _browserVoice.speak(
+          text: text,
+          onDone: () {
+            pendingUtterances--;
+            finishSpeechIfReady();
+          },
+          onError: (error) {
+            if (_isBrowserSessionActive && !_isStopping) {
+              speechError ??= StateError('Speech output failed: $error');
+            }
+            pendingUtterances--;
+            finishSpeechIfReady();
+          },
+        );
+      }
+
+      void queueCompletedSentences() {
+        final text = pendingSpeech.toString();
+        final sentenceBoundary = RegExp(r'[.!?](?:\s|$)');
+        var consumed = 0;
+        for (final match in sentenceBoundary.allMatches(text)) {
+          queueSpeech(text.substring(consumed, match.end));
+          consumed = match.end;
+        }
+        if (consumed > 0) {
+          pendingSpeech
+            ..clear()
+            ..write(text.substring(consumed));
+        }
+      }
+
+      await for (final chunk in chat.sendMessageStream(
+        Content.text(userText),
+      )) {
+        if (!_isBrowserSessionActive || _isStopping) return;
+        final text = chunk.text;
+        if (text == null || text.isEmpty) continue;
+        answer.write(text);
+        pendingSpeech.write(text);
+        onAssistantTranscript(answer.toString().trim());
+        queueCompletedSentences();
+      }
       if (!_isBrowserSessionActive || _isStopping) return;
 
-      final answer = response.text?.trim();
-      if (answer == null || answer.isEmpty) {
+      if (answer.toString().trim().isEmpty) {
         throw StateError('The assistant returned an empty response.');
       }
 
-      onAssistantTranscript(answer);
-      onPhaseChanged(VoiceAgentPhase.speaking);
-      final spoken = Completer<void>();
-      _browserVoice.speak(
-        text: answer,
-        onDone: () {
-          if (!spoken.isCompleted) spoken.complete();
-        },
-        onError: (error) {
-          if (!_isBrowserSessionActive || _isStopping) {
-            if (!spoken.isCompleted) spoken.complete();
-          } else if (!spoken.isCompleted) {
-            spoken.completeError(StateError('Speech output failed: $error'));
-          }
-        },
-      );
-      await spoken.future;
+      queueSpeech(pendingSpeech.toString());
+      generationFinished = true;
+      finishSpeechIfReady();
+      await speechFinished.future;
 
       if (_isBrowserSessionActive && !_isStopping) {
         _startBrowserRecognition();

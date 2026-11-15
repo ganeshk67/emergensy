@@ -22,6 +22,7 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
 
   bool get _isActive =>
       _phase == VoiceAgentPhase.connecting ||
+      _phase == VoiceAgentPhase.thinking ||
       _phase == VoiceAgentPhase.listening ||
       _phase == VoiceAgentPhase.speaking;
 
@@ -144,8 +145,13 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
 
   String _friendlyError(Object error) {
     if (error is UnsupportedError) return error.message ?? error.toString();
-    if (error is FirebaseAIException) return error.message;
     final message = error.toString();
+    if (error is FirebaseAIException) {
+      if (message.contains('DEADLINE_EXCEEDED') || message.contains('503')) {
+        return 'The AI service took too long to reply. Please try again.';
+      }
+      return error.message;
+    }
     if (message.toLowerCase().contains('permission')) {
       return 'Allow microphone access in your device settings, then try again.';
     }
@@ -160,6 +166,7 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
   String get _statusLabel => switch (_phase) {
     VoiceAgentPhase.idle => 'Ready when you are',
     VoiceAgentPhase.connecting => 'Connecting securely...',
+    VoiceAgentPhase.thinking => 'Thinking...',
     VoiceAgentPhase.listening => 'Listening',
     VoiceAgentPhase.speaking => 'Emergensy is speaking',
     VoiceAgentPhase.error => 'Could not connect',
@@ -231,6 +238,8 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
                               ? 'Tap to try again'
                               : _phase == VoiceAgentPhase.connecting
                               ? 'Getting your voice chat ready'
+                              : _phase == VoiceAgentPhase.thinking
+                              ? 'I’m thinking of a reply'
                               : _phase == VoiceAgentPhase.speaking
                               ? 'Tap the end button when you\'re done'
                               : 'Go ahead - I\'m listening',
@@ -317,7 +326,10 @@ class _VoiceHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final connected =
-        phase == VoiceAgentPhase.listening || phase == VoiceAgentPhase.speaking;
+        phase == VoiceAgentPhase.connecting ||
+        phase == VoiceAgentPhase.thinking ||
+        phase == VoiceAgentPhase.listening ||
+        phase == VoiceAgentPhase.speaking;
     return Row(
       children: [
         Expanded(
