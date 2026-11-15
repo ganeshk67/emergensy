@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:emergensy/services/voice_agent_service.dart';
+import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter/material.dart';
 
 class VoiceAssistantPage extends StatefulWidget {
@@ -62,7 +63,7 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if ((state == AppLifecycleState.inactive ||
+    if ((state == AppLifecycleState.hidden ||
             state == AppLifecycleState.paused) &&
         _isActive) {
       unawaited(_endConversation());
@@ -135,11 +136,17 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
 
   String _friendlyError(Object error) {
     if (error is UnsupportedError) return error.message ?? error.toString();
+    if (error is FirebaseAIException) return error.message;
     final message = error.toString();
     if (message.toLowerCase().contains('permission')) {
       return 'Allow microphone access in your device settings, then try again.';
     }
-    return 'The voice chat could not continue. Check your connection and try again.';
+    final diagnostic = message.replaceAll(
+      RegExp(r'([?&]key=)[^\s&#]+', caseSensitive: false),
+      r'$1[redacted]',
+    );
+    return 'The voice chat could not continue. Check your connection and try '
+        'again. Details: $diagnostic';
   }
 
   String get _statusLabel => switch (_phase) {
