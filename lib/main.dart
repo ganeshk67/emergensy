@@ -1404,8 +1404,6 @@ class HomePage extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final columns = constraints.maxWidth >= 700 ? 3 : 2;
-            final cardWidth =
-                (constraints.maxWidth - 10 * (columns - 1)) / columns;
             return ListView(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 30),
               children: [
@@ -1481,25 +1479,26 @@ class HomePage extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final entry in features.indexed)
-                      SizedBox(
-                        width: cardWidth,
-                        height: 164,
-                        child: _Reveal(
-                          duration: Duration(
-                            milliseconds: 380 + (entry.$1 % 3) * 70,
-                          ),
-                          child: _HomeFeatureButton(
-                            index: (entry.$1 + 1).toString().padLeft(2, '0'),
-                            feature: entry.$2,
-                          ),
-                        ),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: features.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    mainAxisExtent: 164,
+                  ),
+                  itemBuilder: (context, index) {
+                    final feature = features[index];
+                    return _Reveal(
+                      duration: Duration(milliseconds: 380 + (index % 3) * 70),
+                      child: _HomeFeatureButton(
+                        index: (index + 1).toString().padLeft(2, '0'),
+                        feature: feature,
                       ),
-                  ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 20),
                 Text(
@@ -1682,130 +1681,135 @@ class _HomeHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final reduceMotion = MediaQuery.of(context).disableAnimations;
-    return Container(
-      height: 250,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: const [Color(0xFF102B43), Color(0xFF091827)],
-        ),
-        border: Border.all(color: colors.tertiary.withValues(alpha: .28)),
-        boxShadow: [
-          BoxShadow(
-            color: colors.tertiary.withValues(alpha: .08),
-            blurRadius: 28,
-            offset: const Offset(0, 12),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 400;
+        return Container(
+          height: 250,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: const [Color(0xFF102B43), Color(0xFF091827)],
+            ),
+            border: Border.all(color: colors.tertiary.withValues(alpha: .28)),
+            boxShadow: [
+              BoxShadow(
+                color: colors.tertiary.withValues(alpha: .08),
+                blurRadius: 28,
+                offset: const Offset(0, 12),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            right: -42,
-            top: -50,
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: .78, end: 1),
-              duration: reduceMotion
-                  ? Duration.zero
-                  : const Duration(milliseconds: 850),
-              curve: Curves.easeOutBack,
-              builder: (context, scale, child) =>
-                  Transform.scale(scale: scale, child: child),
-              child: Container(
-                width: 220,
-                height: 220,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: colors.onPrimary.withValues(alpha: .12),
-                    width: 30,
+          child: Stack(
+            children: [
+              Positioned(
+                right: -42,
+                top: -50,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: .78, end: 1),
+                  duration: reduceMotion
+                      ? Duration.zero
+                      : const Duration(milliseconds: 850),
+                  curve: Curves.easeOutBack,
+                  builder: (context, scale, child) =>
+                      Transform.scale(scale: scale, child: child),
+                  child: Container(
+                    width: 220,
+                    height: 220,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: colors.onPrimary.withValues(alpha: .12),
+                        width: 30,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-          Positioned(
-            right: 12,
-            top: 55,
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: .72, end: 1),
-              duration: reduceMotion
-                  ? Duration.zero
-                  : const Duration(milliseconds: 700),
-              curve: Curves.easeOutBack,
-              builder: (context, scale, child) =>
-                  Transform.scale(scale: scale, child: child),
-              child: Icon(
-                Icons.health_and_safety_rounded,
-                size: 126,
-                color: colors.tertiary.withValues(alpha: .22),
+              Positioned(
+                right: 12,
+                top: 55,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: .72, end: 1),
+                  duration: reduceMotion
+                      ? Duration.zero
+                      : const Duration(milliseconds: 700),
+                  curve: Curves.easeOutBack,
+                  builder: (context, scale, child) =>
+                      Transform.scale(scale: scale, child: child),
+                  child: Icon(
+                    Icons.health_and_safety_rounded,
+                    size: 126,
+                    color: colors.tertiary.withValues(alpha: .22),
+                  ),
+                ),
               ),
-            ),
-          ),
-          Positioned(
-            right: 18,
-            bottom: 36,
-            child: CustomPaint(
-              size: const Size(140, 50),
-              painter: _HeartbeatPainter(
-                color: colors.tertiary.withValues(alpha: .76),
+              Positioned(
+                right: 18,
+                bottom: 36,
+                child: CustomPaint(
+                  size: const Size(140, 50),
+                  painter: _HeartbeatPainter(
+                    color: colors.tertiary.withValues(alpha: .76),
+                  ),
+                ),
               ),
-            ),
-          ),
-          Positioned(
-            right: 49,
-            bottom: 48,
-            child: Icon(
-              Icons.favorite_rounded,
-              size: 20,
-              color: colors.tertiary,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 24, 132, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'YOUR CARE, CLOSER',
-                  style: TextStyle(
-                    color: colors.tertiary,
-                    fontSize: 10,
-                    letterSpacing: 1.6,
-                    fontWeight: FontWeight.w800,
-                  ),
+              Positioned(
+                right: 49,
+                bottom: 48,
+                child: Icon(
+                  Icons.favorite_rounded,
+                  size: 20,
+                  color: colors.tertiary,
                 ),
-                const SizedBox(height: 14),
-                Text(
-                  'WHEN IT\nMATTERS.',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 35,
-                    height: .98,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -1.3,
-                  ),
+              ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(22, 24, compact ? 70 : 132, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'YOUR CARE, CLOSER',
+                      style: TextStyle(
+                        color: colors.tertiary,
+                        fontSize: 10,
+                        letterSpacing: 1.6,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'WHEN IT\nMATTERS.',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: compact ? 30 : 35,
+                        height: .98,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -1.3,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      quote,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: .82),
+                        fontSize: 14,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-                const Spacer(),
-                Text(
-                  quote,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .82),
-                    fontSize: 14,
-                    height: 1.35,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
