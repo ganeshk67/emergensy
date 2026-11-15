@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: emergensy-web
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    envVars:
+      - key: APP_CHECK_RECAPTCHA_ENTERPRISE_SITE_KEY
+        sync: false

@@ -90,6 +90,27 @@ The assistant provides general information, not diagnosis or emergency dispatch.
 For emergencies in India, call 112. Gemini Live API is a Preview feature and may
 change.
 
+## Deploy Flutter web to Render
+
+Render serves the Flutter web app from the Docker image; Firebase remains the
+backend for Auth, Firestore, and Cloud Functions. Android and iOS app binaries
+are not deployed through Render.
+
+1. Push the repository to GitHub and connect it in Render with **New > Blueprint**.
+   Render reads the root `render.yaml`.
+2. Set `APP_CHECK_RECAPTCHA_ENTERPRISE_SITE_KEY` to the public reCAPTCHA
+   Enterprise site key configured for the Firebase web app. The Docker build
+   embeds this value into the Flutter web bundle; do not put a private secret
+   in this variable.
+3. Add the assigned `*.onrender.com` hostname to the allowed domains for the
+   reCAPTCHA Enterprise key and to Firebase Authentication's authorized
+   domains. Then deploy.
+4. Deploy Firestore rules and Cloud Functions to Firebase separately if they
+   have not already been deployed. Render does not run Firebase Functions.
+
+The voice assistant UI is present on web, but live voice is currently limited
+to Android and iOS.
+
 ## Current scope
 
 - Emergency flow collects an emergency type and device location or a manually
