@@ -23,6 +23,8 @@ RUN curl -fsSL \
     && tar -xJf /tmp/flutter.tar.xz -C /opt \
     && rm /tmp/flutter.tar.xz
 
+RUN git config --global --add safe.directory /opt/flutter
+
 WORKDIR /app
 
 COPY pubspec.yaml pubspec.lock ./
