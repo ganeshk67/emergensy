@@ -65,8 +65,9 @@ commercial/public service.
 ## Voice assistant setup
 
 The real-time voice assistant uses Firebase AI Logic's Gemini Live API directly
-from Flutter and currently supports Android and iOS. It does not use a separate
-agent data-collection endpoint. Before using it:
+from Flutter on Android, iOS, and supported web browsers. Web voice requires
+HTTPS and user-granted microphone access. It does not use a separate agent
+data-collection endpoint. Before using it:
 
 1. Confirm the active Firebase project is `emergensy-ca0f3`, then run this from
    the project root to provision Firebase AI Logic:
@@ -75,10 +76,11 @@ agent data-collection endpoint. Before using it:
    npx -y firebase-tools@latest init ailogic
    ```
 
-2. Set up Firebase App Check for the Android app with Play Integrity and for
-   the iOS app with DeviceCheck. Debug builds use App Check's debug provider;
-   register the generated debug token in Firebase Console > App Check > Apps
-   before testing Gemini requests. Never ship a debug token or debug build.
+2. Set up Firebase App Check for Android with Play Integrity, iOS with
+   DeviceCheck, and web with reCAPTCHA Enterprise. Debug builds use App Check's
+   debug provider; register the generated debug token in Firebase Console >
+   App Check > Apps before testing Gemini requests. Never ship a debug token
+   or debug build.
 3. Before release, enforce App Check for Firebase AI Logic and configure the
    production providers in Firebase Console. Production web builds also need
    a reCAPTCHA Enterprise site key, supplied as
@@ -108,8 +110,10 @@ are not deployed through Render.
 4. Deploy Firestore rules and Cloud Functions to Firebase separately if they
    have not already been deployed. Render does not run Firebase Functions.
 
-The voice assistant UI is present on web, but live voice is currently limited
-to Android and iOS.
+Live voice is available from supported mobile browsers when the app is served
+over HTTPS and microphone access is allowed. Some browser or device
+configurations may not support live recording; the Android and iOS apps remain
+available as alternatives.
 
 ## Current scope
 

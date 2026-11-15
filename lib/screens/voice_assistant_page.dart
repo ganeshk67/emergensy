@@ -240,10 +240,10 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
                 if (!supported)
                   const _NoticeCard(
                     icon: Icons.phone_android_rounded,
-                    title: 'Use the mobile app for voice chat',
+                    title: 'Voice chat unavailable',
                     message:
-                        'Real-time microphone and audio playback are currently '
-                        'available on Android and iOS.',
+                        'Real-time voice chat requires a supported browser or '
+                        'the Android or iOS app.',
                   )
                 else if (_error case final error?)
                   _NoticeCard(

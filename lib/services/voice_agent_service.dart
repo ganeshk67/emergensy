@@ -7,6 +7,9 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter_pcm_sound/flutter_pcm_sound.dart' as pcm;
 import 'package:record/record.dart';
 
+import 'voice_audio_output_stub.dart'
+    if (dart.library.js_interop) 'voice_audio_output_web.dart' as browser_audio;
+
 enum VoiceAgentPhase { idle, connecting, listening, speaking, error }
 
 class VoiceAgentService {
@@ -33,21 +36,23 @@ class VoiceAgentService {
   final void Function(Object error) onError;
 
   AudioRecorder? _recorder;
+  final browser_audio.VoiceAudioOutput _browserAudioOutput =
+      browser_audio.VoiceAudioOutput();
   LiveSession? _session;
   StreamSubscription<Uint8List>? _audioSubscription;
   StreamSubscription<LiveServerResponse>? _responseSubscription;
   Future<void> _sendQueue = Future<void>.value();
   Future<void> _responseQueue = Future<void>.value();
   bool _isRecording = false;
-  bool _pcmInitialized = false;
+  bool _audioOutputInitialized = false;
   bool _isStopping = false;
   int _queuedAudioChunks = 0;
   int _generation = 0;
 
   bool get supportsPlatform =>
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS);
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
 
   Future<void> start() async {
     if (_session != null || _isStopping) return;
@@ -63,15 +68,21 @@ class VoiceAgentService {
     _recorder = recorder;
 
     try {
+      if (kIsWeb) {
+        await _initializeAudioOutput();
+        if (!_isCurrent(generation)) {
+          await _releaseAudioOutput();
+          return;
+        }
+      }
       if (!await recorder.hasPermission()) {
         throw StateError('Microphone permission is required to start a chat.');
       }
       if (!_isCurrent(generation)) return;
 
-      await _initializeAudioOutput();
+      if (!kIsWeb) await _initializeAudioOutput();
       if (!_isCurrent(generation)) {
-        await pcm.FlutterPcmSound.release();
-        _pcmInitialized = false;
+        await _releaseAudioOutput();
         return;
       }
 
@@ -166,9 +177,8 @@ class VoiceAgentService {
       final recorder = _recorder;
       _recorder = null;
       await attempt(() async => recorder?.dispose());
-      if (_pcmInitialized) {
-        await attempt(pcm.FlutterPcmSound.release);
-        _pcmInitialized = false;
+      if (_audioOutputInitialized) {
+        await attempt(_releaseAudioOutput);
       }
       _sendQueue = Future<void>.value();
       _responseQueue = Future<void>.value();
@@ -188,12 +198,25 @@ class VoiceAgentService {
   Future<void> dispose() => stop();
 
   Future<void> _initializeAudioOutput() async {
-    await pcm.FlutterPcmSound.setup(
-      sampleRate: 24000,
-      channelCount: 1,
-      iosAudioCategory: pcm.IosAudioCategory.playAndRecord,
-    );
-    _pcmInitialized = true;
+    if (kIsWeb) {
+      await _browserAudioOutput.initialize();
+    } else {
+      await pcm.FlutterPcmSound.setup(
+        sampleRate: 24000,
+        channelCount: 1,
+        iosAudioCategory: pcm.IosAudioCategory.playAndRecord,
+      );
+    }
+    _audioOutputInitialized = true;
+  }
+
+  Future<void> _releaseAudioOutput() async {
+    if (kIsWeb) {
+      await _browserAudioOutput.dispose();
+    } else {
+      await pcm.FlutterPcmSound.release();
+    }
+    _audioOutputInitialized = false;
   }
 
   void _queueAudio(Uint8List bytes) {
@@ -251,11 +274,15 @@ class VoiceAgentService {
       onPhaseChanged(VoiceAgentPhase.speaking);
     }
 
-    if (message.interrupted == true && _pcmInitialized) {
-      await pcm.FlutterPcmSound.release();
-      _pcmInitialized = false;
-      if (_isStopping || !identical(_session, session)) return;
-      await _initializeAudioOutput();
+    if (message.interrupted == true && _audioOutputInitialized) {
+      if (kIsWeb) {
+        await _browserAudioOutput.stop();
+      } else {
+        await pcm.FlutterPcmSound.release();
+        _audioOutputInitialized = false;
+        if (_isStopping || !identical(_session, session)) return;
+        await _initializeAudioOutput();
+      }
     }
 
     for (final part in message.modelTurn?.parts ?? const <Part>[]) {
@@ -276,6 +303,10 @@ class VoiceAgentService {
   Future<void> _playAudio(Uint8List bytes, LiveSession session) async {
     final alignedLength = bytes.lengthInBytes - bytes.lengthInBytes % 2;
     if (alignedLength == 0 || !identical(_session, session)) return;
+    if (kIsWeb) {
+      await _browserAudioOutput.play(bytes);
+      return;
+    }
     final audio = ByteData.sublistView(bytes, 0, alignedLength);
     final samples = List<int>.generate(
       alignedLength ~/ 2,

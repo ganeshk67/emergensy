@@ -50,6 +50,7 @@ dependencies:
   firebase_app_check: ^0.4.9
   record: ^7.2.0
   flutter_pcm_sound: ^3.3.3
+  web: 1.1.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
