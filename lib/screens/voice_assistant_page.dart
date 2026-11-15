@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:emergensy/services/voice_agent_service.dart';
 import 'package:firebase_ai/firebase_ai.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 class VoiceAssistantPage extends StatefulWidget {
@@ -102,11 +103,18 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
         builder: (context) => AlertDialog(
           icon: const Icon(Icons.mic_none_rounded),
           title: const Text('Voice and AI processing'),
-          content: const Text(
-            'Your microphone audio is streamed to Google Gemini through '
-            'Firebase AI Logic to generate a reply. Emergensy does not save '
-            'this conversation. Avoid sharing details you do not want '
-            'processed.',
+          content: Text(
+            kIsWeb
+                ? 'Your browser uses speech recognition to turn your speech '
+                      'into text. That transcript is sent to Google Gemini '
+                      'through Firebase AI Logic, and your browser speaks the '
+                      'reply. Browser speech recognition may process audio '
+                      'according to your browser provider\'s settings. '
+                      'Emergensy does not save this conversation.'
+                : 'Your microphone audio is streamed to Google Gemini through '
+                      'Firebase AI Logic to generate a reply. Emergensy does '
+                      'not save this conversation. Avoid sharing details you '
+                      'do not want processed.',
           ),
           actions: [
             TextButton(
@@ -249,8 +257,9 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
                     icon: Icons.phone_android_rounded,
                     title: 'Voice chat unavailable',
                     message:
-                        'Real-time voice chat requires a supported browser or '
-                        'the Android or iOS app.',
+                        'Web voice chat needs a browser with speech '
+                        'recognition support. The Android and iOS apps use '
+                        'live voice chat.',
                   )
                 else if (_error case final error?)
                   _NoticeCard(
