@@ -40,6 +40,8 @@ class HospitalSearchService {
   final http.Client _client;
   final bool _ownsClient;
   DateTime? _lastGeocodeAt;
+  final Map<String, MapSearchLocation> _locationCache = {};
+  final Map<String, List<HospitalPlace>> _nearbyCache = {};
 
   static const _headers = {
     'User-Agent': 'Emergensy/1.0 (com.example.emergensy)',
@@ -51,6 +53,9 @@ class HospitalSearchService {
     if (trimmed.isEmpty) {
       throw ArgumentError.value(query, 'query', 'Enter a city or area.');
     }
+    final cacheKey = trimmed.toLowerCase();
+    final cachedLocation = _locationCache[cacheKey];
+    if (cachedLocation != null) return cachedLocation;
     final lastRequest = _lastGeocodeAt;
     if (lastRequest != null) {
       final elapsed = DateTime.now().difference(lastRequest);
@@ -93,11 +98,13 @@ class HospitalSearchService {
       );
     }
 
-    return MapSearchLocation(
+    final location = MapSearchLocation(
       label: result['display_name'] as String? ?? trimmed,
       latitude: latitude,
       longitude: longitude,
     );
+    _locationCache[cacheKey] = location;
+    return location;
   }
 
   Future<List<HospitalPlace>> searchNearby({
@@ -115,6 +122,10 @@ class HospitalSearchService {
         'Search radius must be between 1 km and 50 km.',
       );
     }
+
+    final cacheKey = '${latitude.toStringAsFixed(3)},${longitude.toStringAsFixed(3)}:$radiusMeters';
+    final cached = _nearbyCache[cacheKey];
+    if (cached != null) return List<HospitalPlace>.of(cached);
 
     final lat = latitude.toStringAsFixed(6);
     final lon = longitude.toStringAsFixed(6);
@@ -194,6 +205,7 @@ out center tags;
         ),
       );
     }
+    _nearbyCache[cacheKey] = List<HospitalPlace>.unmodifiable(hospitals);
     return hospitals;
   }
 

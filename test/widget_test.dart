@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 class _FakeAuthRepository implements AppAuthRepository {
   String? registeredDoctorInviteCode;
+  String? registeredPatientName;
+  String? registeredPatientEmail;
 
   AppUser signedInUser = const AppUser(
     uid: 'test-user',
@@ -18,8 +20,11 @@ class _FakeAuthRepository implements AppAuthRepository {
   Stream<AppUser?> authChanges() => Stream.value(signedInUser);
 
   @override
-  Future<AppUser> register(String name, String email, String password) async =>
-      AppUser(uid: 'test-user', email: email, displayName: name);
+  Future<AppUser> register(String name, String email, String password) async {
+    registeredPatientName = name;
+    registeredPatientEmail = email;
+    return AppUser(uid: 'test-user', email: email, displayName: name);
+  }
 
   @override
   Future<AppUser> registerDoctor(
@@ -63,6 +68,9 @@ class _FakeDataRepository implements AppDataRepository {
   final List<Map<String, Object?>> labBookings = [];
   final List<Map<String, Object?>> reminders = [];
   Map<String, Object?> profileData = {};
+  Map<String, Object?> passportData = {};
+  bool passportLoadFails = false;
+  bool passportSaveFails = false;
 
   @override
   Future<void> saveEmergencyAlert(
@@ -144,6 +152,68 @@ class _FakeDataRepository implements AppDataRepository {
   @override
   Future<void> saveProfileData(String uid, Map<String, Object?> data) async {
     profileData = {...profileData, ...data};
+    const passportKeys = [
+      'bloodGroup',
+      'heightCm',
+      'weightKg',
+      'allergies',
+      'conditions',
+      'emergencyContactName',
+      'emergencyContactPhone',
+      'qrConsentName',
+      'qrConsentBlood',
+      'qrConsentHeight',
+      'qrConsentWeight',
+      'qrConsentAllergies',
+      'qrConsentConditions',
+      'qrConsentEmergencyContact',
+      'qrConsentMedications',
+      'qrConsentPreferredHospital',
+    ];
+    if (data.keys.any(passportKeys.contains)) {
+      passportData = {
+        ...passportData,
+        for (final key in passportKeys)
+          if (data[key] is String || data[key] is bool) key: data[key],
+      };
+    }
+  }
+
+  @override
+  Stream<Map<String, Object?>> watchEmergencyPassport(String uid) =>
+      passportLoadFails
+      ? Stream.error(StateError('cloud_firestore/permission-denied'))
+      : Stream.value(passportData);
+
+  @override
+  Future<void> saveEmergencyPassport(
+    String uid,
+    Map<String, Object?> passport,
+  ) async {
+    if (passportSaveFails) throw StateError('simulated write failure');
+    passportData = {...passport};
+    for (final key in [
+      'bloodGroup',
+      'heightCm',
+      'weightKg',
+      'allergies',
+      'conditions',
+      'emergencyContactName',
+      'emergencyContactPhone',
+      'qrConsentName',
+      'qrConsentBlood',
+      'qrConsentHeight',
+      'qrConsentWeight',
+      'qrConsentAllergies',
+      'qrConsentConditions',
+      'qrConsentEmergencyContact',
+      'qrConsentMedications',
+      'qrConsentPreferredHospital',
+    ]) {
+      if (passport[key] is String || passport[key] is bool) {
+        profileData[key] = passport[key];
+      }
+    }
   }
 
   @override
@@ -161,9 +231,16 @@ void main() {
   final authRepository = _FakeAuthRepository();
   final dataRepository = _FakeDataRepository();
 
-  Future<void> pumpApp(WidgetTester tester) => tester.pumpWidget(
-    MyApp(authRepository: authRepository, dataRepository: dataRepository),
-  );
+  Future<void> pumpApp(WidgetTester tester, {bool disableAnimations = true}) {
+    tester.binding.platformDispatcher.accessibilityFeaturesTestValue =
+        FakeAccessibilityFeatures(disableAnimations: disableAnimations);
+    addTearDown(
+      tester.binding.platformDispatcher.clearAccessibilityFeaturesTestValue,
+    );
+    return tester.pumpWidget(
+      MyApp(authRepository: authRepository, dataRepository: dataRepository),
+    );
+  }
 
   Future<void> tapText(WidgetTester tester, String title) async {
     final target = find.text(title);
@@ -195,8 +272,9 @@ void main() {
       find.text('Location shared only when you request help'),
       findsOneWidget,
     );
-    expect(find.text('WHEN IT\nMATTERS.'), findsOneWidget);
-    expect(find.text('Get help'), findsOneWidget);
+    expect(find.text('Your next step, made clear.'), findsOneWidget);
+    expect(find.text('Call India’s emergency number 112'), findsOneWidget);
+    expect(find.text('PREPARE SOS DETAILS'), findsOneWidget);
     await tester.drag(find.byType(ListView).first, const Offset(0, -1000));
     await tester.pumpAndSettle();
     expect(find.text('First-aid guide'), findsOneWidget);
@@ -205,6 +283,14 @@ void main() {
     expect(find.text('Doctor appointments'), findsOneWidget);
     expect(find.text('Lab tests'), findsOneWidget);
     expect(find.text('What happened?'), findsNothing);
+  });
+
+  testWidgets('SOS dashboard renders with motion enabled', (tester) async {
+    await pumpApp(tester, disableAnimations: false);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('PREPARE SOS DETAILS'), findsOneWidget);
+    expect(find.text('Call India’s emergency number 112'), findsOneWidget);
   });
 
   testWidgets('home features use a two-column grid on phone screens', (
@@ -296,6 +382,101 @@ void main() {
     expect(find.text('Welcome, Dr. Example'), findsOneWidget);
   });
 
+  testWidgets('112 call action is available before signing in', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(home: SignInPage(authRepository: authRepository)),
+    );
+
+    expect(find.text('Call 112 now'), findsOneWidget);
+    expect(find.text('Email'), findsOneWidget);
+  });
+
+  testWidgets('patient registration submits name and email to auth backend', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(home: SignInPage(authRepository: authRepository)),
+    );
+    await tester.ensureVisible(find.text('New here? Create an account'));
+    await tester.tap(find.text('New here? Create an account'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Create an account for your care details.'),
+      findsOneWidget,
+    );
+    await tester.enterText(find.byType(TextField).at(0), 'Sam Example');
+    await tester.enterText(find.byType(TextField).at(1), 'sam@example.com');
+    await tester.enterText(find.byType(TextField).at(2), 'safe-password');
+    await tester.tap(find.text('Create account'));
+    await tester.pumpAndSettle();
+
+    expect(authRepository.registeredPatientName, 'Sam Example');
+    expect(authRepository.registeredPatientEmail, 'sam@example.com');
+  });
+
+  testWidgets('emergency passport loads, saves and labels self-reported data', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    await tapHomeFeature(tester, 'Emergency Passport 360');
+
+    expect(find.text('Emergency Passport 360'), findsOneWidget);
+    expect(find.text('Patient reported'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Edit emergency passport'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Blood group'),
+      'O+',
+    );
+    await tester.tap(find.text('Save passport'));
+    await tester.pumpAndSettle();
+
+    expect(dataRepository.passportData['bloodGroup'], 'O+');
+    expect(dataRepository.profileData['bloodGroup'], 'O+');
+    expect(find.text('O+'), findsOneWidget);
+    expect(find.text('Emergency passport saved.'), findsOneWidget);
+  });
+
+  testWidgets('emergency passport shows load failure and retry state', (
+    tester,
+  ) async {
+    dataRepository.passportLoadFails = true;
+    await pumpApp(tester);
+    await tapHomeFeature(tester, 'Emergency Passport 360');
+
+    expect(find.textContaining('Firestore rules are deployed'), findsOneWidget);
+    expect(find.text('Try again'), findsOneWidget);
+
+    dataRepository.passportLoadFails = false;
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+    expect(find.text('Blood group'), findsOneWidget);
+    dataRepository.passportLoadFails = false;
+  });
+
+  testWidgets('emergency passport keeps edits local when save fails', (
+    tester,
+  ) async {
+    final savedBefore = Map<String, Object?>.from(dataRepository.passportData);
+    dataRepository.passportSaveFails = true;
+    await pumpApp(tester);
+    await tapHomeFeature(tester, 'Emergency Passport 360');
+    await tester.tap(find.byTooltip('Edit emergency passport'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Blood group'),
+      'AB+',
+    );
+    await tester.tap(find.text('Save passport'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Could not save your passport'), findsOneWidget);
+    expect(dataRepository.passportData, savedBefore);
+    dataRepository.passportSaveFails = false;
+  });
+
   testWidgets('doctor demo uses synthetic data without backend writes', (
     tester,
   ) async {
@@ -353,7 +534,7 @@ void main() {
     tester,
   ) async {
     await pumpApp(tester);
-    await tester.tap(find.text('Get help'));
+    await tester.tap(find.text('PREPARE SOS DETAILS'));
     await tester.pumpAndSettle();
 
     expect(find.text('What happened?'), findsOneWidget);
@@ -396,7 +577,7 @@ void main() {
     addTearDown(() => dataRepository.profileData = previousProfile);
 
     await pumpApp(tester);
-    await tester.tap(find.text('Get help'));
+    await tester.tap(find.text('PREPARE SOS DETAILS'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Severe bleeding'));
     await tester.enterText(find.byType(TextField).last, '12 Main Street, Pune');
@@ -522,7 +703,9 @@ void main() {
     expect(find.textContaining('Not yet sent to a lab'), findsOneWidget);
   });
 
-  testWidgets('profile switches themes and opens QR profile', (tester) async {
+  testWidgets('passport unifies details and consented QR controls', (
+    tester,
+  ) async {
     await pumpApp(tester);
     await tapHomeFeature(tester, 'Profile & settings');
 
@@ -548,26 +731,42 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Edit profile'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).at(1), 'A+');
+    await tester.enterText(find.byType(TextField).first, 'Sam Example');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Emergency QR profile'));
+    await tester.tap(find.text('Emergency Passport 360'));
     await tester.pumpAndSettle();
-    expect(find.text('Emergency QR profile'), findsOneWidget);
+    expect(find.text('Emergency Passport 360'), findsOneWidget);
+    await tester.drag(find.byType(ListView).last, const Offset(0, -900));
+    await tester.pumpAndSettle();
+    expect(find.text('Emergency QR'), findsOneWidget);
+    await tester.tap(find.byTooltip('Edit emergency passport'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Blood group'),
+      'A+',
+    );
+    await tester.tap(find.text('Save passport'));
+    await tester.pumpAndSettle();
     expect(
-      find.text('Choose at least one detail above to create your QR code.'),
+      find.text('Select at least one non-empty field to create a QR.'),
       findsOneWidget,
     );
-    await tester.tap(find.byType(CheckboxListTile).first);
+    expect(dataRepository.passportData['bloodGroup'], 'A+');
+    final nameConsent = find.widgetWithText(CheckboxListTile, 'Name');
+    await tester.ensureVisible(nameConsent);
+    await tester.tap(nameConsent);
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(CheckboxListTile).at(1));
+    final bloodConsent = find.widgetWithText(CheckboxListTile, 'Blood group');
+    await tester.ensureVisible(bloodConsent);
+    await tester.tap(bloodConsent);
     await tester.pumpAndSettle();
-    expect(
-      find.text('Only the details you selected are encoded.'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('2 selected detail(s) encoded'), findsOneWidget);
+    expect(dataRepository.passportData['qrConsentName'], isTrue);
+    expect(dataRepository.passportData['qrConsentBlood'], isTrue);
     expect(dataRepository.profileData['qrConsentName'], isTrue);
     expect(dataRepository.profileData['qrConsentBlood'], isTrue);
+    expect(dataRepository.passportData['bloodGroup'], 'A+');
   });
 
   testWidgets('health timeline adds a report and consultation summary', (
@@ -621,6 +820,21 @@ void main() {
 
     expect(find.text('Asha Example'), findsOneWidget);
     expect(dataRepository.profileData['familyProfiles'], hasLength(1));
+    await tapText(tester, 'Add medicine reminder');
+    await tester.enterText(find.byType(TextField).at(0), 'Daily medicine');
+    await tester.enterText(find.byType(TextField).at(1), '1 tablet');
+    await tester.tap(find.text('Add time'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save reminder'));
+    await tester.pumpAndSettle();
+    expect(find.text('Daily medicine'), findsOneWidget);
+    expect(
+      ((dataRepository.profileData['familyProfiles'] as List).single
+          as Map)['medicationReminders'],
+      hasLength(1),
+    );
     expect(find.text('Book appointment'), findsOneWidget);
     await tester.tap(find.text('Book appointment'));
     await tester.pumpAndSettle();

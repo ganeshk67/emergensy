@@ -277,6 +277,22 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
                   ),
                 ),
                 const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: colors.outlineVariant),
+                  ),
+                  child: Text(
+                    'Try asking: “What appointments do I have this week?” or “What medicine is due for my family today?”',
+                    style: TextStyle(
+                      color: colors.onSurfaceVariant,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
                 if (!supported)
                   const _NoticeCard(
                     icon: Icons.phone_android_rounded,

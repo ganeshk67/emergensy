@@ -6,7 +6,6 @@ import 'package:emergensy/widgets/feature_hero_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 typedef ProfileSaveCallback = Future<bool> Function(Map<String, Object?> data);
 
@@ -17,7 +16,7 @@ class ProfilePage extends StatelessWidget {
     required this.darkMode,
     required this.onToggleDarkMode,
     required this.onSaveData,
-    required this.onOpenEmergencyProfile,
+    required this.onOpenEmergencyPassport,
     required this.onOpenHealthTimeline,
     required this.onOpenFamilyGuardian,
     required this.onSignOut,
@@ -29,7 +28,7 @@ class ProfilePage extends StatelessWidget {
   final bool darkMode;
   final ValueChanged<bool> onToggleDarkMode;
   final ProfileSaveCallback onSaveData;
-  final VoidCallback onOpenEmergencyProfile;
+  final VoidCallback onOpenEmergencyPassport;
   final VoidCallback onOpenHealthTimeline;
   final VoidCallback onOpenFamilyGuardian;
   final VoidCallback onSignOut;
@@ -44,16 +43,7 @@ class ProfilePage extends StatelessWidget {
   Future<void> _editProfile(BuildContext context) async {
     final result = await showDialog<Map<String, Object?>>(
       context: context,
-      builder: (context) => _EditProfileDialog(
-        name: _name,
-        bloodGroup: data['bloodGroup'] as String? ?? '',
-        heightCm: data['heightCm'] as String? ?? '',
-        weightKg: data['weightKg'] as String? ?? '',
-        allergies: data['allergies'] as String? ?? '',
-        conditions: data['conditions'] as String? ?? '',
-        emergencyContactName: data['emergencyContactName'] as String? ?? '',
-        emergencyContactPhone: data['emergencyContactPhone'] as String? ?? '',
-      ),
+      builder: (context) => _EditProfileDialog(name: _name),
     );
     if (result != null) await onSaveData(result);
   }
@@ -138,10 +128,10 @@ class ProfilePage extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           _ProfileAction(
-            icon: Icons.qr_code_2,
-            title: 'Emergency QR profile',
-            subtitle: 'Choose what to share in an emergency',
-            onTap: onOpenEmergencyProfile,
+            icon: Icons.health_and_safety_outlined,
+            title: 'Emergency Passport 360',
+            subtitle: 'Medical details, emergency QR, and sharing controls',
+            onTap: onOpenEmergencyPassport,
           ),
           _ProfileAction(
             icon: Icons.monitor_heart_outlined,
@@ -234,72 +224,25 @@ class _ProfileAction extends StatelessWidget {
 }
 
 class _EditProfileDialog extends StatefulWidget {
-  const _EditProfileDialog({
-    required this.name,
-    required this.bloodGroup,
-    required this.heightCm,
-    required this.weightKg,
-    required this.allergies,
-    required this.conditions,
-    required this.emergencyContactName,
-    required this.emergencyContactPhone,
-  });
+  const _EditProfileDialog({required this.name});
 
   final String name;
-  final String bloodGroup;
-  final String heightCm;
-  final String weightKg;
-  final String allergies;
-  final String conditions;
-  final String emergencyContactName;
-  final String emergencyContactPhone;
 
   @override
   State<_EditProfileDialog> createState() => _EditProfileDialogState();
 }
 
 class _EditProfileDialogState extends State<_EditProfileDialog> {
-  late final _controllers = [
-    TextEditingController(text: widget.name),
-    TextEditingController(text: widget.bloodGroup),
-    TextEditingController(text: widget.heightCm),
-    TextEditingController(text: widget.weightKg),
-    TextEditingController(text: widget.allergies),
-    TextEditingController(text: widget.conditions),
-    TextEditingController(text: widget.emergencyContactName),
-    TextEditingController(text: widget.emergencyContactPhone),
-  ];
+  late final _nameController = TextEditingController(text: widget.name);
 
   @override
   void dispose() {
-    for (final controller in _controllers) {
-      controller.dispose();
-    }
+    _nameController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    const labels = [
-      'Full name',
-      'Blood group',
-      'Height (cm)',
-      'Weight (kg)',
-      'Allergies',
-      'Medical conditions',
-      'Emergency contact name',
-      'Emergency contact phone',
-    ];
-    const keys = [
-      'displayName',
-      'bloodGroup',
-      'heightCm',
-      'weightKg',
-      'allergies',
-      'conditions',
-      'emergencyContactName',
-      'emergencyContactPhone',
-    ];
     return AlertDialog(
       title: const Text('Edit profile'),
       content: SizedBox(
@@ -308,14 +251,11 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              for (var index = 0; index < labels.length; index++) ...[
-                TextField(
-                  controller: _controllers[index],
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: InputDecoration(labelText: labels[index]),
-                ),
-                if (index < labels.length - 1) const SizedBox(height: 10),
-              ],
+              TextField(
+                controller: _nameController,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(labelText: 'Full name'),
+              ),
             ],
           ),
         ),
@@ -327,204 +267,11 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
         ),
         FilledButton(
           onPressed: () => Navigator.pop(context, {
-            for (var index = 0; index < keys.length; index++)
-              keys[index]: _controllers[index].text.trim(),
+            'displayName': _nameController.text.trim(),
           }),
           child: const Text('Save'),
         ),
       ],
-    );
-  }
-}
-
-class EmergencyProfilePage extends StatefulWidget {
-  const EmergencyProfilePage({
-    required this.user,
-    required this.data,
-    required this.onSaveData,
-    super.key,
-  });
-
-  final AppUser user;
-  final Map<String, Object?> data;
-  final ProfileSaveCallback onSaveData;
-
-  @override
-  State<EmergencyProfilePage> createState() => _EmergencyProfilePageState();
-}
-
-class _EmergencyProfilePageState extends State<EmergencyProfilePage> {
-  late Map<String, Object?> _data = Map.of(widget.data);
-  bool _saving = false;
-
-  String get _name =>
-      (_data['displayName'] as String?)?.trim().isNotEmpty == true
-      ? _data['displayName'] as String
-      : widget.user.displayName?.trim().isNotEmpty == true
-      ? widget.user.displayName!
-      : widget.user.email.split('@').first;
-
-  Future<void> _setConsent(String key, bool value) async {
-    final updated = {..._data, key: value};
-    setState(() => _saving = true);
-    final saved = await widget.onSaveData(updated);
-    if (!mounted) return;
-    setState(() {
-      _saving = false;
-      if (saved) _data = updated;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final qrProfile = <String, String>{
-      if (_data['qrConsentName'] == true) 'name': _name,
-      if (_data['qrConsentBlood'] == true)
-        'bloodGroup': _data['bloodGroup'] as String? ?? '',
-      if (_data['qrConsentHeight'] == true)
-        'heightCm': _data['heightCm'] as String? ?? '',
-      if (_data['qrConsentWeight'] == true)
-        'weightKg': _data['weightKg'] as String? ?? '',
-      if (_data['qrConsentAllergies'] == true)
-        'allergies': _data['allergies'] as String? ?? '',
-      if (_data['qrConsentConditions'] == true)
-        'conditions': _data['conditions'] as String? ?? '',
-      if (_data['qrConsentEmergencyContact'] == true) ...{
-        'emergencyContact': _data['emergencyContactName'] as String? ?? '',
-        'emergencyPhone': _data['emergencyContactPhone'] as String? ?? '',
-      },
-    }..removeWhere((key, value) => value.trim().isEmpty);
-    final hasSharedDetails = qrProfile.isNotEmpty;
-    final qrData = hasSharedDetails ? jsonEncode(qrProfile) : '';
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Emergency QR profile')),
-      body: CenteredContent(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Row(
-              children: [
-                const FeatureHeroIcon(
-                  tag: 'Emergency profile',
-                  icon: Icons.qr_code_2,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Your emergency details',
-                    style: Theme.of(context).textTheme.headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Select which details appear in your QR code. Anyone who scans it can read the selected information.',
-              style: TextStyle(color: colors.onSurfaceVariant, height: 1.45),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Column(
-                children: [
-                  _ConsentTile(
-                    title: 'Name',
-                    value: _data['qrConsentName'] == true,
-                    onChanged: (value) => _setConsent('qrConsentName', value),
-                  ),
-                  _ConsentTile(
-                    title: 'Blood group',
-                    value: _data['qrConsentBlood'] == true,
-                    onChanged: (value) => _setConsent('qrConsentBlood', value),
-                  ),
-                  _ConsentTile(
-                    title: 'Height',
-                    value: _data['qrConsentHeight'] == true,
-                    onChanged: (value) => _setConsent('qrConsentHeight', value),
-                  ),
-                  _ConsentTile(
-                    title: 'Weight',
-                    value: _data['qrConsentWeight'] == true,
-                    onChanged: (value) => _setConsent('qrConsentWeight', value),
-                  ),
-                  _ConsentTile(
-                    title: 'Allergies',
-                    value: _data['qrConsentAllergies'] == true,
-                    onChanged: (value) =>
-                        _setConsent('qrConsentAllergies', value),
-                  ),
-                  _ConsentTile(
-                    title: 'Medical conditions',
-                    value: _data['qrConsentConditions'] == true,
-                    onChanged: (value) =>
-                        _setConsent('qrConsentConditions', value),
-                  ),
-                  _ConsentTile(
-                    title: 'Emergency contact',
-                    value: _data['qrConsentEmergencyContact'] == true,
-                    onChanged: (value) =>
-                        _setConsent('qrConsentEmergencyContact', value),
-                  ),
-                ],
-              ),
-            ),
-            if (_saving) const LinearProgressIndicator(),
-            const SizedBox(height: 18),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    if (hasSharedDetails)
-                      QrImageView(
-                        data: qrData,
-                        size: 220,
-                        backgroundColor: Colors.white,
-                        eyeStyle: QrEyeStyle(
-                          eyeShape: QrEyeShape.square,
-                          color: colors.primary,
-                        ),
-                        dataModuleStyle: QrDataModuleStyle(
-                          dataModuleShape: QrDataModuleShape.square,
-                          color: const Color(0xFF111827),
-                        ),
-                      )
-                    else
-                      Icon(Icons.qr_code_2, size: 120, color: colors.outline),
-                    const SizedBox(height: 8),
-                    Text(
-                      _name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 17,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      hasSharedDetails
-                          ? 'Only the details you selected are encoded.'
-                          : 'Choose at least one detail above to create your QR code.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: colors.onSurfaceVariant),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'This QR code is not access-controlled. Keep it private and share it only when you choose.',
-              style: TextStyle(
-                color: colors.onSurfaceVariant,
-                fontSize: 12,
-                height: 1.4,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -545,7 +292,10 @@ class _HealthQrScannerPageState extends State<HealthQrScannerPage> {
     'allergies',
     'conditions',
     'emergencyContact',
+    'emergencyRelationship',
     'emergencyPhone',
+    'medications',
+    'preferredHospital',
   };
 
   Map<String, String>? _scannedProfile;
@@ -602,9 +352,8 @@ class _HealthQrScannerPageState extends State<HealthQrScannerPage> {
               profile == null
                   ? 'Scan the patient’s consented QR profile.'
                   : 'Shared health details',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+              style: Theme.of(context).textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             Text(
@@ -664,31 +413,13 @@ class _HealthQrScannerPageState extends State<HealthQrScannerPage> {
     'weightKg' => 'Weight',
     'emergencyContact' => 'Emergency contact',
     'emergencyPhone' => 'Emergency phone',
+    'emergencyRelationship' => 'Emergency contact relationship',
     'allergies' => 'Allergies',
     'conditions' => 'Medical conditions',
+    'medications' => 'Current medications',
+    'preferredHospital' => 'Preferred hospital',
     _ => 'Name',
   };
-}
-
-class _ConsentTile extends StatelessWidget {
-  const _ConsentTile({
-    required this.title,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final String title;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) => CheckboxListTile(
-    value: value,
-    onChanged: (checked) => onChanged(checked ?? false),
-    title: Text(title),
-    controlAffinity: ListTileControlAffinity.leading,
-    dense: true,
-  );
 }
 
 class HealthTimelinePage extends StatefulWidget {
@@ -1279,12 +1010,12 @@ class _FamilyGuardianPageState extends State<FamilyGuardianPage> {
         .whereType<Map>()
         .map((profile) => Map<String, Object?>.from(profile))
         .indexed
-        .map((entry) => {
-          ...entry.$2,
-          'id':
-              entry.$2['id'] as String? ??
-              'legacy-family-${entry.$1}',
-        })
+        .map(
+          (entry) => {
+            ...entry.$2,
+            'id': entry.$2['id'] as String? ?? 'legacy-family-${entry.$1}',
+          },
+        )
         .toList();
   }
 
@@ -1308,10 +1039,7 @@ class _FamilyGuardianPageState extends State<FamilyGuardianPage> {
       ..._data,
       'familyProfiles': [
         ..._profiles,
-        {
-          ...profile,
-          'id': DateTime.now().microsecondsSinceEpoch.toString(),
-        },
+        {...profile, 'id': DateTime.now().microsecondsSinceEpoch.toString()},
       ],
     });
   }
@@ -1328,6 +1056,45 @@ class _FamilyGuardianPageState extends State<FamilyGuardianPage> {
 
   Future<void> _removeProfile(int index) async {
     final updatedProfiles = [..._profiles]..removeAt(index);
+    await _save({..._data, 'familyProfiles': updatedProfiles});
+  }
+
+  Future<void> _addMedicineReminder(
+    int index,
+    Map<String, Object?> profile,
+  ) async {
+    final reminder = await showDialog<Map<String, Object?>>(
+      context: context,
+      builder: (context) => const _AddMedicineReminderDialog(),
+    );
+    if (reminder == null || !mounted) return;
+    final updatedProfiles = [..._profiles];
+    final current = (profile['medicationReminders'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, Object?>.from(item))
+        .toList();
+    updatedProfiles[index] = {
+      ...profile,
+      'medicationReminders': [
+        ...current,
+        {...reminder, 'id': DateTime.now().microsecondsSinceEpoch.toString()},
+      ],
+    };
+    await _save({..._data, 'familyProfiles': updatedProfiles});
+  }
+
+  Future<void> _removeMedicineReminder(
+    int index,
+    Map<String, Object?> profile,
+    String reminderId,
+  ) async {
+    final updatedProfiles = [..._profiles];
+    final reminders = (profile['medicationReminders'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, Object?>.from(item))
+        .where((item) => item['id'] != reminderId)
+        .toList();
+    updatedProfiles[index] = {...profile, 'medicationReminders': reminders};
     await _save({..._data, 'familyProfiles': updatedProfiles});
   }
 
@@ -1436,6 +1203,85 @@ class _FamilyGuardianPageState extends State<FamilyGuardianPage> {
                         ),
                         if (entry.$2['authorized'] == true) ...[
                           const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Medicine reminders',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          ...((entry.$2['medicationReminders'] as List? ??
+                                      const [])
+                                  .whereType<Map>()
+                                  .map(
+                                    (item) => Map<String, Object?>.from(item),
+                                  ))
+                              .map((reminder) {
+                                final times =
+                                    (reminder['times'] as List? ?? const [])
+                                        .whereType<String>()
+                                        .map(_displayMedicineTime)
+                                        .join(', ');
+                                final name =
+                                    reminder['name'] as String? ?? 'Medicine';
+                                return ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(
+                                    Icons.medication_outlined,
+                                    color: colors.tertiary,
+                                  ),
+                                  title: Text(name),
+                                  subtitle: Text(
+                                    [
+                                          if ((reminder['dose'] as String? ??
+                                                  '')
+                                              .isNotEmpty)
+                                            reminder['dose'] as String,
+                                          times,
+                                        ]
+                                        .where((value) => value.isNotEmpty)
+                                        .join(' · '),
+                                  ),
+                                  trailing: IconButton(
+                                    tooltip: 'Remove medicine reminder',
+                                    onPressed: _saving
+                                        ? null
+                                        : () => _removeMedicineReminder(
+                                            entry.$1,
+                                            entry.$2,
+                                            reminder['id'] as String? ?? '',
+                                          ),
+                                    icon: const Icon(Icons.delete_outline),
+                                  ),
+                                );
+                              }),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: OutlinedButton.icon(
+                              onPressed: _saving
+                                  ? null
+                                  : () => _addMedicineReminder(
+                                      entry.$1,
+                                      entry.$2,
+                                    ),
+                              icon: const Icon(Icons.add_alarm_outlined),
+                              label: const Text('Add medicine reminder'),
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Times repeat on the selected days. Set the dose and notes exactly as prescribed. Mobile alerts need notifications enabled.',
+                              style: TextStyle(
+                                color: colors.onSurfaceVariant,
+                                fontSize: 11,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
                           Wrap(
                             spacing: 8,
                             runSpacing: 8,
@@ -1474,6 +1320,192 @@ class _FamilyGuardianPageState extends State<FamilyGuardianPage> {
       ),
     );
   }
+}
+
+String _displayMedicineTime(String value) {
+  final parts = value.split(':');
+  if (parts.length != 2) return value;
+  final hour = int.tryParse(parts[0]);
+  final minute = int.tryParse(parts[1]);
+  if (hour == null || minute == null) return value;
+  final time = TimeOfDay(hour: hour, minute: minute);
+  return '${time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod}:${minute.toString().padLeft(2, '0')} ${time.period == DayPeriod.am ? 'AM' : 'PM'}';
+}
+
+class _AddMedicineReminderDialog extends StatefulWidget {
+  const _AddMedicineReminderDialog();
+
+  @override
+  State<_AddMedicineReminderDialog> createState() =>
+      _AddMedicineReminderDialogState();
+}
+
+class _AddMedicineReminderDialogState
+    extends State<_AddMedicineReminderDialog> {
+  final _name = TextEditingController();
+  final _dose = TextEditingController();
+  final _instructions = TextEditingController();
+  final List<TimeOfDay> _times = [];
+  final Set<int> _days = {1, 2, 3, 4, 5, 6, 7};
+  String? _error;
+
+  static const _weekdays = [
+    (1, 'Mon'),
+    (2, 'Tue'),
+    (3, 'Wed'),
+    (4, 'Thu'),
+    (5, 'Fri'),
+    (6, 'Sat'),
+    (7, 'Sun'),
+  ];
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _dose.dispose();
+    _instructions.dispose();
+    super.dispose();
+  }
+
+  Future<void> _addTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (!_times.any(
+        (time) => time.hour == picked.hour && time.minute == picked.minute,
+      )) {
+        _times.add(picked);
+        _times.sort(
+          (a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute),
+        );
+      }
+    });
+  }
+
+  void _save() {
+    if (_name.text.trim().isEmpty) {
+      setState(() => _error = 'Enter the medicine name.');
+      return;
+    }
+    if (_times.isEmpty) {
+      setState(() => _error = 'Add at least one reminder time.');
+      return;
+    }
+    if (_days.isEmpty) {
+      setState(() => _error = 'Choose at least one day.');
+      return;
+    }
+    Navigator.pop(context, <String, Object?>{
+      'name': _name.text.trim(),
+      'dose': _dose.text.trim(),
+      'instructions': _instructions.text.trim(),
+      'times': _times
+          .map(
+            (time) =>
+                '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
+          )
+          .toList(),
+      'days': _days.toList()..sort(),
+      'active': true,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Medicine reminder'),
+    content: SizedBox(
+      width: 440,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _name,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(labelText: 'Medicine name'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _dose,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Dose (as prescribed, optional)',
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _instructions,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Notes (optional)',
+                hintText: 'For example, take after food',
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Reminder times',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 6,
+              children: [
+                for (final time in _times)
+                  InputChip(
+                    label: Text(time.format(context)),
+                    onDeleted: () => setState(() => _times.remove(time)),
+                  ),
+                ActionChip(
+                  avatar: const Icon(Icons.add, size: 16),
+                  label: const Text('Add time'),
+                  onPressed: _addTime,
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text('Repeat on', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 5,
+              runSpacing: 2,
+              children: [
+                for (final (day, label) in _weekdays)
+                  FilterChip(
+                    label: Text(label),
+                    selected: _days.contains(day),
+                    onSelected: (selected) => setState(() {
+                      if (selected) {
+                        _days.add(day);
+                      } else {
+                        _days.remove(day);
+                      }
+                    }),
+                  ),
+              ],
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(onPressed: _save, child: const Text('Save reminder')),
+    ],
+  );
 }
 
 class _AddFamilyProfileDialog extends StatefulWidget {

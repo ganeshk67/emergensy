@@ -6,7 +6,7 @@
   },
   "main": "index.js",
   "scripts": {
-    "lint": "node --check index.js && node --check doctor-invites.js && node --check scripts/set-doctor-claims.js && node --check scripts/manage-doctor-invite.js",
+    "lint": "node --check index.js && node --check reminder-schedule.js && node --check doctor-invites.js && node --check scripts/set-doctor-claims.js && node --check scripts/manage-doctor-invite.js",
     "test": "node --test"
   },
   "dependencies": {

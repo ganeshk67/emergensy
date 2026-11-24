@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:emergensy/firebase_options.dart';
 import 'package:emergensy/screens/hospital_map_page.dart';
 import 'package:emergensy/screens/doctor_dashboard.dart';
+import 'package:emergensy/screens/emergency_passport_page.dart';
 import 'package:emergensy/screens/profile_pages.dart';
 import 'package:emergensy/screens/voice_assistant_page.dart';
 import 'package:emergensy/services/app_backend.dart';
@@ -11,6 +12,7 @@ import 'package:emergensy/services/hospital_search_service.dart';
 import 'package:emergensy/theme/app_theme.dart';
 import 'package:emergensy/widgets/centered_content.dart';
 import 'package:emergensy/widgets/feature_hero_icon.dart';
+import 'package:emergensy/widgets/emergency_motion.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
@@ -452,6 +454,8 @@ class _SignInPageState extends State<SignInPage> {
                     const SizedBox(height: 24),
                     const _AuthWelcomeBanner(),
                     const SizedBox(height: 24),
+                    _Call112Button(onPressed: () => _call112(context)),
+                    const SizedBox(height: 20),
                     SegmentedButton<bool>(
                       segments: const [
                         ButtonSegment(
@@ -712,15 +716,24 @@ class _AppShellState extends State<AppShell> {
     if (!kIsWeb && widget.dataRepository is FirestoreDataRepository) {
       _messageSubscription = FirebaseMessaging.onMessage.listen((message) {
         if (!mounted) return;
+        final title = message.notification?.title;
+        final body = message.notification?.body;
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(
             SnackBar(
-              content: const Text('A new lab result is ready to review.'),
-              action: SnackBarAction(
-                label: 'View reports',
-                onPressed: () => _openLabs(initialSection: 1),
+              content: Text(
+                [title, body]
+                    .whereType<String>()
+                    .where((text) => text.isNotEmpty)
+                    .join('\n'),
               ),
+              action: message.data['type'] == 'lab_result'
+                  ? SnackBarAction(
+                      label: 'View reports',
+                      onPressed: () => _openLabs(initialSection: 1),
+                    )
+                  : null,
             ),
           );
       });
@@ -1010,13 +1023,7 @@ class _AppShellState extends State<AppShell> {
               darkMode: darkMode,
               onToggleDarkMode: _setDarkMode,
               onSaveData: _saveProfileData,
-              onOpenEmergencyProfile: () => _pushPage(
-                EmergencyProfilePage(
-                  user: widget.user,
-                  data: _profileData,
-                  onSaveData: _saveProfileData,
-                ),
-              ),
+              onOpenEmergencyPassport: _openEmergencyPassport,
               onOpenHealthTimeline: () => _pushPage(
                 HealthTimelinePage(
                   data: _profileData,
@@ -1032,12 +1039,12 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  void _openEmergencyProfile() {
+  void _openEmergencyPassport() {
     _pushPage(
-      EmergencyProfilePage(
+      EmergencyPassportPage(
         user: widget.user,
-        data: _profileData,
-        onSaveData: _saveProfileData,
+        repository: widget.dataRepository,
+        legacyProfile: _profileData,
       ),
     );
   }
@@ -1066,6 +1073,7 @@ class _AppShellState extends State<AppShell> {
       body: HomePage(
         user: widget.user,
         onEmergency: () => unawaited(_launchEmergency()),
+        onCall112: () => unawaited(_call112(context)),
         onDoctors: _openDoctors,
         onHospitalVisits: () => _openDoctors(
           initialMode: 'In-person',
@@ -1077,7 +1085,7 @@ class _AppShellState extends State<AppShell> {
         onNews: _openNews,
         onFirstAid: _openFirstAid,
         onVoiceAssistant: _openVoiceAssistant,
-        onEmergencyProfile: _openEmergencyProfile,
+        onEmergencyPassport: _openEmergencyPassport,
         onHealthTimeline: _openHealthTimeline,
         onFamilyGuardian: _openFamilyGuardian,
         onProfile: _openProfile,
@@ -1227,6 +1235,7 @@ class _RevealState extends State<_Reveal> with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _opacity;
   late final Animation<Offset> _offset;
+  Timer? _delayTimer;
 
   @override
   void initState() {
@@ -1244,7 +1253,7 @@ class _RevealState extends State<_Reveal> with SingleTickerProviderStateMixin {
     if (widget.delay == Duration.zero) {
       _controller.forward();
     } else {
-      Future<void>.delayed(widget.delay, () {
+      _delayTimer = Timer(widget.delay, () {
         if (mounted) _controller.forward();
       });
     }
@@ -1254,12 +1263,14 @@ class _RevealState extends State<_Reveal> with SingleTickerProviderStateMixin {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (MediaQuery.of(context).disableAnimations) {
+      _delayTimer?.cancel();
       _controller.value = 1;
     }
   }
 
   @override
   void dispose() {
+    _delayTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -1292,6 +1303,7 @@ class HomePage extends StatelessWidget {
   const HomePage({
     required this.user,
     required this.onEmergency,
+    required this.onCall112,
     required this.onDoctors,
     required this.onHospitalVisits,
     required this.onLabs,
@@ -1300,7 +1312,7 @@ class HomePage extends StatelessWidget {
     required this.onNews,
     required this.onFirstAid,
     required this.onVoiceAssistant,
-    required this.onEmergencyProfile,
+    required this.onEmergencyPassport,
     required this.onHealthTimeline,
     required this.onFamilyGuardian,
     required this.onProfile,
@@ -1309,6 +1321,7 @@ class HomePage extends StatelessWidget {
 
   final AppUser user;
   final VoidCallback onEmergency;
+  final VoidCallback onCall112;
   final VoidCallback onDoctors;
   final VoidCallback onHospitalVisits;
   final VoidCallback onLabs;
@@ -1317,7 +1330,7 @@ class HomePage extends StatelessWidget {
   final VoidCallback onNews;
   final VoidCallback onFirstAid;
   final VoidCallback onVoiceAssistant;
-  final VoidCallback onEmergencyProfile;
+  final VoidCallback onEmergencyPassport;
   final VoidCallback onHealthTimeline;
   final VoidCallback onFamilyGuardian;
   final VoidCallback onProfile;
@@ -1374,10 +1387,10 @@ class HomePage extends StatelessWidget {
         onHealthTimeline,
       ),
       _HomeFeature(
-        Icons.qr_code_2,
-        'Emergency profile',
-        'Choose details to share by QR',
-        onEmergencyProfile,
+        Icons.health_and_safety_outlined,
+        'Emergency Passport 360',
+        'Your medical details and shareable QR',
+        onEmergencyPassport,
       ),
       _HomeFeature(
         Icons.family_restroom_outlined,
@@ -1466,7 +1479,13 @@ class HomePage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                _EmergencyCard(onCall: onEmergency),
+                _Reveal(
+                  duration: const Duration(milliseconds: 620),
+                  child: _EmergencyCard(
+                    onCall112: onCall112,
+                    onPrepare: onEmergency,
+                  ),
+                ),
                 const SizedBox(height: 14),
                 _HomeHero(quote: quote),
                 const SizedBox(height: 28),
@@ -3858,38 +3877,66 @@ class _EmergencyAlertSaveStatus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final success = saved && error == null && !saving;
     final message = saving
         ? 'Saving SOS details to your account…'
         : saved
         ? 'SOS details saved to your account. No responders were contacted.'
         : error ?? 'SOS details have not been saved.';
-    return Container(
+    return AnimatedContainer(
+      duration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: _surface,
-        border: Border.all(color: _border),
+        color: success
+            ? colors.tertiary.withValues(alpha: .08)
+            : colors.surface,
+        border: Border.all(
+          color: success ? colors.tertiary.withValues(alpha: .4) : _border,
+        ),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [
-          if (saving)
-            const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          else
-            Icon(
-              saved ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
-              color: saved ? _teal : colors.error,
+          AnimatedSwitcher(
+            duration: reduceMotion
+                ? Duration.zero
+                : const Duration(milliseconds: 240),
+            transitionBuilder: (child, animation) => ScaleTransition(
+              scale: animation,
+              child: FadeTransition(opacity: animation, child: child),
             ),
+            child: saving
+                ? const SizedBox(
+                    key: ValueKey('saving'),
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    key: ValueKey(success ? 'saved' : 'not-saved'),
+                    success
+                        ? Icons.cloud_done_rounded
+                        : Icons.cloud_off_outlined,
+                    color: success ? _teal : colors.error,
+                  ),
+          ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              message,
-              style: TextStyle(
-                color: error == null ? _ink : colors.error,
-                height: 1.4,
+            child: AnimatedSwitcher(
+              duration: reduceMotion
+                  ? Duration.zero
+                  : const Duration(milliseconds: 220),
+              child: Text(
+                message,
+                key: ValueKey(message),
+                style: TextStyle(
+                  color: error == null ? _ink : colors.error,
+                  height: 1.4,
+                ),
               ),
             ),
           ),
@@ -4022,6 +4069,23 @@ Future<void> _callEmergency(
   }
 }
 
+Future<void> _call112(BuildContext context) async {
+  try {
+    final launched = await launchUrl(
+      Uri(scheme: 'tel', path: '112'),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!launched) throw Exception('Your device could not open the phone app.');
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text('Unable to start the emergency call: $error')),
+      );
+  }
+}
+
 Future<void> _callSavedEmergencyContact(
   BuildContext context,
   String? name,
@@ -4133,99 +4197,181 @@ class _BrandHeader extends StatelessWidget {
 }
 
 class _EmergencyCard extends StatelessWidget {
-  const _EmergencyCard({required this.onCall});
+  const _EmergencyCard({required this.onCall112, required this.onPrepare});
 
-  final VoidCallback onCall;
+  final VoidCallback onCall112;
+  final VoidCallback onPrepare;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
       decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: colors.error.withValues(alpha: .28)),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF17283B), Color(0xFF0B1725)],
+        ),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: colors.error.withValues(alpha: .24)),
         boxShadow: [
           BoxShadow(
-            color: colors.error.withValues(alpha: .09),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
+            color: colors.error.withValues(alpha: .11),
+            blurRadius: 30,
+            offset: const Offset(0, 13),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: colors.error.withValues(alpha: .12),
-                  borderRadius: BorderRadius.circular(13),
+          Positioned(
+            right: -45,
+            top: -62,
+            child: Container(
+              width: 180,
+              height: 180,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: colors.error.withValues(alpha: .055),
+                  width: 25,
                 ),
-                child: Icon(Icons.emergency_rounded, color: colors.error),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'SOS · IMMEDIATE ASSISTANCE',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.error,
-                    fontSize: 10,
-                    letterSpacing: 1,
-                    fontWeight: FontWeight.w900,
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: colors.error.withValues(alpha: .12),
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    child: Icon(Icons.emergency_rounded, color: colors.error),
                   ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'EMERGENCY ASSISTANCE',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.error,
+                        fontSize: 10,
+                        letterSpacing: 1,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 5),
+              Text(
+                'Your next step, made clear.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -.4,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Prepare your details to share with the 112 operator.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: .66),
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 3),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onPrepare,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    EmergencySosButton(onPressed: onPrepare),
+                    Text(
+                      'PREPARE SOS DETAILS',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: .74),
+                        fontSize: 10,
+                        letterSpacing: 1.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onCall112,
+                  icon: const Icon(Icons.call_rounded, size: 18),
+                  label: const Text('Call India’s emergency number 112'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: .22),
+                    ),
+                    minimumSize: const Size.fromHeight(48),
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Emergensy prepares information; it does not dispatch responders.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: .50),
+                  fontSize: 10,
+                  height: 1.35,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 15),
-          Text(
-            'One tap from getting help.',
-            style: TextStyle(
-              color: _ink,
-              fontSize: 21,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -.4,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Share what happened and where you are. We’ll show immediate safety steps.',
-            style: TextStyle(color: _muted, fontSize: 13, height: 1.4),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: onCall,
-              icon: const Icon(Icons.sos_rounded),
-              label: const Text('Get help'),
-              style: FilledButton.styleFrom(
-                backgroundColor: colors.error,
-                foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(56),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                textStyle: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 9),
-          Text(
-            'In India, call 112 for emergency services. This app does not dispatch an ambulance.',
-            style: TextStyle(color: _muted, fontSize: 11, height: 1.4),
-          ),
         ],
+      ),
+    );
+  }
+}
+
+class _Call112Button extends StatelessWidget {
+  const _Call112Button({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(Icons.call_rounded),
+        label: const Text('Call 112 now'),
+        style: FilledButton.styleFrom(
+          backgroundColor: colors.error,
+          foregroundColor: Colors.white,
+          minimumSize: const Size.fromHeight(54),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+        ),
       ),
     );
   }

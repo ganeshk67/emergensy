@@ -41,7 +41,8 @@ class VoiceAgentService {
       'For a potentially life-threatening emergency, tell the user to call '
       'local emergency services now. In India, call 112. Emergensy does not '
       'dispatch responders. Do not claim access to the user\'s location, '
-      'medical records, or emergency contacts.';
+      'health information, or emergency contacts unless it is returned by an '
+      'authorized app tool.';
 
   final String uid;
   final AppDataRepository repository;
@@ -73,6 +74,7 @@ class VoiceAgentService {
   Timer? _browserTurnTimer;
   String _browserFinalTranscript = '';
   String _browserInterimTranscript = '';
+  String _latestLiveTranscript = '';
   Map<String, Object?>? _pendingAction;
   bool _confirmationAllowed = false;
 
@@ -150,6 +152,16 @@ class VoiceAgentService {
       FunctionDeclaration(
         'list_my_reminders',
         'List the signed-in user\'s saved reminders.',
+        parameters: const {},
+      ),
+      FunctionDeclaration(
+        'list_upcoming_appointments',
+        'Read the user\'s actual appointment requests for today and the next 7 days. Distinguish provider-approved appointments from requests that are still pending.',
+        parameters: const {},
+      ),
+      FunctionDeclaration(
+        'list_family_medication_schedule',
+        'Read medicine names, prescribed notes, days, and times from authorized family profiles. Never infer or change dose instructions.',
         parameters: const {},
       ),
     ]),
@@ -316,6 +328,7 @@ class VoiceAgentService {
         'result': 'The user has not clearly confirmed in their latest message. Ask for a clear yes; do not save anything.',
       };
     }
+    _confirmationAllowed = false;
     final action = _pendingAction;
     if (action == null) {
       return {'result': 'There is no pending action to confirm.'};
@@ -376,7 +389,7 @@ class VoiceAgentService {
             ? 'Appointment request saved in Emergensy. It is awaiting provider approval; it is not confirmed with a clinic. $summary'
             : type == 'lab'
             ? 'Lab request saved in Emergensy. It is not sent to an outside lab. $summary'
-            : 'Reminder saved in the app. Background push alerts are not currently configured for web, so do not promise a notification if the app is closed. $summary',
+            : 'Reminder saved in Emergensy. A mobile notification depends on the scheduled-reminder service being deployed and notifications being allowed on the device. Web background notifications are not configured. $summary',
       };
     } catch (error) {
       return {
@@ -390,6 +403,7 @@ class VoiceAgentService {
     Map<String, Object?> args,
   ) async {
     _pendingAction = null;
+    _confirmationAllowed = false;
     return {'result': 'Pending action discarded. Nothing was saved.'};
   }
 
@@ -399,15 +413,24 @@ class VoiceAgentService {
           .watchReminders(uid)
           .first
           .timeout(const Duration(seconds: 8));
-      if (reminders.isEmpty) return {'result': 'There are no saved reminders.'};
-      final lines = reminders
+      final now = DateTime.now();
+      final upcoming = reminders.where((reminder) {
+        final value = reminder['reminderAt'];
+        final at = value is Timestamp
+            ? value.toDate().toLocal()
+            : value is DateTime
+            ? value.toLocal()
+            : DateTime.tryParse(value is String ? value : '')?.toLocal();
+        return at != null && at.isAfter(now) && reminder['status'] != 'sent';
+      }).toList()..sort((a, b) => _reminderDate(a).compareTo(_reminderDate(b)));
+      if (upcoming.isEmpty) {
+        return {'result': 'There are no upcoming saved reminders.'};
+      }
+      final lines = upcoming
           .map((reminder) {
             final title = reminder['title'] ?? 'Reminder';
-            final storedTime = reminder['reminderAt'];
-            final at = storedTime is Timestamp
-                ? storedTime.toDate().toLocal()
-                : storedTime;
-            return '$title at $at';
+            final at = _reminderDate(reminder);
+            return '$title at ${_formatDateTime(at)}';
           })
           .join('; ');
       return {'result': 'Saved reminders: $lines'};
@@ -416,14 +439,152 @@ class VoiceAgentService {
     }
   }
 
-  String _browserSystemInstruction() =>
+  DateTime _reminderDate(Map<String, Object?> reminder) {
+    final value = reminder['reminderAt'];
+    if (value is Timestamp) return value.toDate().toLocal();
+    if (value is DateTime) return value.toLocal();
+    return DateTime.tryParse(value is String ? value : '')?.toLocal() ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  Future<Map<String, Object?>> _listUpcomingAppointments(
+    Map<String, Object?> args,
+  ) async {
+    try {
+      final appointments = await repository
+          .watchAppointments(uid)
+          .first
+          .timeout(const Duration(seconds: 5));
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final end = today.add(const Duration(days: 8));
+      final upcoming =
+          appointments.where((appointment) {
+            final date = _dateValue(appointment['date']);
+            final status = appointment['status'];
+            return date != null &&
+                !date.isBefore(today) &&
+                date.isBefore(end) &&
+                (status == 'approved' || status == 'requested');
+          }).toList()..sort(
+            (a, b) => _dateValue(a['date'])!.compareTo(_dateValue(b['date'])!),
+          );
+      if (upcoming.isEmpty) {
+        return {
+          'result':
+              'There are no appointment requests for today or the next 7 days.',
+        };
+      }
+      final lines = upcoming
+          .map((appointment) {
+            final date = _dateValue(appointment['date'])!;
+            final day = _relativeDate(date, today);
+            final slot = appointment['slot'] as String? ?? 'time not set';
+            final doctor =
+                appointment['doctor'] as String? ?? 'Doctor appointment';
+            final patient = appointment['patient'] as String? ?? patientName;
+            final status = appointment['status'] == 'approved'
+                ? 'confirmed by the provider'
+                : 'request pending provider approval';
+            return '$day at $slot: $doctor for $patient ($status)';
+          })
+          .join('; ');
+      return {'result': 'Upcoming appointments: $lines'};
+    } catch (error) {
+      return {'result': 'Could not load upcoming appointments: $error'};
+    }
+  }
+
+  Future<Map<String, Object?>> _listFamilyMedicationSchedule(
+    Map<String, Object?> args,
+  ) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final lines = <String>[];
+    for (final profile in familyProfiles) {
+      if (profile['authorized'] != true) continue;
+      final member = profile['name'] as String? ?? 'Family member';
+      final records = profile['medicationReminders'];
+      if (records is! List) continue;
+      for (final value in records.whereType<Map>()) {
+        final medication = Map<String, Object?>.from(value);
+        if (medication['active'] == false) continue;
+        final timeValues = medication['times'];
+        final times = timeValues is List
+            ? (timeValues.whereType<String>().toList()..sort())
+            : <String>[];
+        final dayValues = medication['days'];
+        final scheduledDays = dayValues is List
+            ? dayValues
+                  .whereType<int>()
+                  .where((day) => day >= 1 && day <= 7)
+                  .toList()
+            : <int>[];
+        final dueToday =
+            scheduledDays.isEmpty || scheduledDays.contains(today.weekday);
+        final nextDay = scheduledDays.isEmpty
+            ? today.add(const Duration(days: 1))
+            : List<int>.generate(7, (index) => index + 1)
+                  .map((offset) => today.add(Duration(days: offset)))
+                  .firstWhere((date) => scheduledDays.contains(date.weekday));
+        final dayLabel = dueToday ? 'today' : _relativeDate(nextDay, today);
+        final name = medication['name'] as String? ?? 'Medicine';
+        final dose = medication['dose'] as String? ?? '';
+        final notes = medication['instructions'] as String? ?? '';
+        lines.add(
+          '$member: $name${dose.isEmpty ? '' : ', $dose'}${notes.isEmpty ? '' : ', $notes'}; ${times.isEmpty ? 'time not set' : times.join(' and ')}; next due $dayLabel',
+        );
+      }
+    }
+    if (lines.isEmpty) {
+      return {
+        'result': 'There are no active medicine reminders in authorized family profiles.',
+      };
+    }
+    return {'result': 'Saved family medicine schedule: ${lines.join('; ')}'};
+  }
+
+  static DateTime? _dateValue(Object? value) {
+    if (value is Timestamp) return value.toDate().toLocal();
+    if (value is DateTime) return value.toLocal();
+    if (value is String) return DateTime.tryParse(value)?.toLocal();
+    return null;
+  }
+
+  static String _relativeDate(DateTime date, DateTime today) {
+    final days = DateTime(
+      date.year,
+      date.month,
+      date.day,
+    ).difference(today).inDays;
+    if (days == 0) return 'today';
+    if (days == 1) return 'tomorrow';
+    return '${_weekday(date.weekday)}, ${date.day}/${date.month}';
+  }
+
+  static String _weekday(int day) => const [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ][day - 1];
+
+  static String _formatDateTime(DateTime value) =>
+      '${value.day}/${value.month} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+
+  String _voiceSystemInstruction() =>
       '''$_systemInstruction
 
-Today is ${DateTime.now().toIso8601String().substring(0, 10)}. The signed-in user's name is ${patientName.isEmpty ? 'not available' : patientName}. Authorized family profiles: ${familyProfiles.map((p) => p['name']).whereType<String>().join(', ')}.
+The user's local date and time is ${DateTime.now().toLocal().toIso8601String()}. The signed-in user's name is ${patientName.isEmpty ? 'not available' : patientName}. Authorized family profiles: ${familyProfiles.map((p) => p['name']).whereType<String>().join(', ')}. Parse relative dates using this local clock.
+
+When the user asks about today, tomorrow, or upcoming appointments, call list_upcoming_appointments and distinguish confirmed visits from requests waiting for provider approval. When they ask about a family's medicine, doses, or due times, call list_family_medication_schedule and repeat only stored instructions. Never invent or change a medicine dose. Keep spoken answers short and make dates and times explicit.
 
 Emergensy app features: Emergency SOS prepares an alert and does not dispatch responders (India emergency number 112); First Aid care guides; online doctor appointment requests; nearby hospital map and directions; lab test requests and lab results; health news; demo health shop without checkout; Health Timeline; emergency profile and QR; Family Guardian; dark mode and profile settings; this voice assistant. Always use tools for booking, lab requests, and reminders. Doctor choices: ${_doctors.entries.map((e) => '${e.key} (${e.value})').join('; ')}. Appointment time slots: ${_slots.join(', ')}. Lab tests: ${_tests.join('; ')}. Lab collection: Visit a lab or Home collection.
 
-For requests, ask one question at a time for missing details. Use ISO dates and exact app options. Never invent availability. For appointments and lab requests, distinguish a saved request from a real provider confirmation. For reminders, clearly say that on web the reminder is stored but browser push notifications are not configured, so it may not alert when the app is closed. When any action tool prepares a draft, read back every important detail and wait for a separate clear yes before calling confirm_pending_action. Never infer confirmation from the original booking request.''';
+For requests, ask one question at a time for missing details. Use ISO dates and exact app options. Never invent availability. For appointments and lab requests, distinguish a saved request from a real provider confirmation. A requested appointment is not confirmed. Mobile notifications depend on notification permission and the deployed scheduled-reminder service. Web reminders are stored but background notifications are not currently configured. When any action tool prepares a draft, read back every important detail and wait for a separate clear yes before calling confirm_pending_action. Never infer confirmation from the original booking request.''';
 
   Future<Map<String, Object?>> _runBrowserFunction(
     String name,
@@ -433,13 +594,16 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
       'prepare_doctor_appointment' => _prepareAppointment(args),
       'prepare_lab_request' => _prepareLabRequest(args),
       'prepare_reminder' => _prepareReminder(args),
-      'confirm_pending_action' => _confirmationAllowed
-          ? _confirmPendingAction(args)
-          : Future.value({
-              'result': 'The latest user message did not clearly confirm this action. Ask for confirmation; nothing was saved.',
-            }),
+      'confirm_pending_action' =>
+        _confirmationAllowed
+            ? _confirmPendingAction(args)
+            : Future.value({
+                'result': 'The latest user message did not clearly confirm this action. Ask for confirmation; nothing was saved.',
+              }),
       'cancel_pending_action' => _cancelPendingAction(args),
       'list_my_reminders' => _listReminders(args),
+      'list_upcoming_appointments' => _listUpcomingAppointments(args),
+      'list_family_medication_schedule' => _listFamilyMedicationSchedule(args),
       _ => Future.value({'result': 'Unsupported action; nothing was changed.'}),
     };
   }
@@ -505,6 +669,9 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
     }
 
     final generation = ++_generation;
+    _pendingAction = null;
+    _confirmationAllowed = false;
+    _latestLiveTranscript = '';
     onPhaseChanged(VoiceAgentPhase.connecting);
 
     if (kIsWeb) {
@@ -543,7 +710,8 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
 
       final model = FirebaseAI.googleAI().liveGenerativeModel(
         model: _modelName,
-        systemInstruction: Content.system(_systemInstruction),
+        systemInstruction: Content.system(_voiceSystemInstruction()),
+        tools: _browserTools,
         liveGenerationConfig: LiveGenerationConfig(
           responseModalities: [ResponseModalities.audio],
           inputAudioTranscription: AudioTranscriptionConfig(),
@@ -605,6 +773,9 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
     if (_isStopping) return;
     _isStopping = true;
     _generation++;
+    _pendingAction = null;
+    _confirmationAllowed = false;
+    _latestLiveTranscript = '';
 
     if (kIsWeb) {
       _browserTurnTimer?.cancel();
@@ -674,8 +845,8 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
   Future<void> _startBrowserConversation(int generation) async {
     final model = FirebaseAI.googleAI().generativeModel(
       model: 'gemini-3.5-flash-lite',
-      generationConfig: GenerationConfig(maxOutputTokens: 220),
-      systemInstruction: Content.system(_browserSystemInstruction()),
+      generationConfig: GenerationConfig(maxOutputTokens: 160, temperature: .2),
+      systemInstruction: Content.system(_voiceSystemInstruction()),
       tools: _browserTools,
     );
     if (!_isCurrent(generation)) return;
@@ -702,7 +873,7 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
         if (finalText.isNotEmpty) {
           _browserTurnTimer?.cancel();
           _browserTurnTimer = Timer(
-            const Duration(milliseconds: 500),
+            const Duration(milliseconds: 320),
             () => unawaited(_sendBrowserTurn()),
           );
         }
@@ -732,7 +903,7 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
     if (userText.isEmpty) return;
 
     _confirmationAllowed = RegExp(
-      r'^(yes|yeah|yep|confirm|confirmed|go ahead|do it|okay|ok|please do)( please)?[.! ]*$',
+      r'^(yes|yeah|yep|confirm(?:ed)?|go ahead|do it|okay|ok|please do)(?:[\s,.!]|$)',
       caseSensitive: false,
     ).hasMatch(userText);
 
@@ -743,7 +914,10 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
     try {
       final model = _browserModel;
       if (model == null) return;
-      final requestHistory = <Content>[..._browserHistory, Content.text(userText)];
+      final requestHistory = <Content>[
+        ..._browserHistory,
+        Content.text(userText),
+      ];
       final answer = StringBuffer();
       final pendingSpeech = StringBuffer();
       var pendingUtterances = 0;
@@ -824,16 +998,23 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
         if (functionCalls.isEmpty) {
           _browserHistory
             ..add(Content.text(userText))
-            ..add(Content.model(
-              turnContent.expand((content) => content.parts),
-            ));
+            ..add(
+              Content.model(turnContent.expand((content) => content.parts)),
+            );
+          if (_browserHistory.length > 8) {
+            _browserHistory.removeRange(0, _browserHistory.length - 8);
+          }
           break;
         }
         if (++toolTurns > 5) {
           throw StateError('The assistant requested too many tool actions.');
         }
-        final modelParts = turnContent.expand((content) => content.parts).toList();
-        if (modelParts.isNotEmpty) requestHistory.add(Content.model(modelParts));
+        final modelParts = turnContent
+            .expand((content) => content.parts)
+            .toList();
+        if (modelParts.isNotEmpty) {
+          requestHistory.add(Content.model(modelParts));
+        }
         final responses = <FunctionResponse>[];
         for (final call in functionCalls) {
           final result = await _runBrowserFunction(call.name, call.args);
@@ -932,10 +1113,28 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
   ) async {
     if (_isStopping || !identical(_session, session)) return;
     final message = response.message;
+    if (message is LiveServerToolCall) {
+      final responses = <FunctionResponse>[];
+      for (final call in message.functionCalls ?? const <FunctionCall>[]) {
+        final result = await _runBrowserFunction(call.name, call.args);
+        responses.add(FunctionResponse(call.name, result, id: call.id));
+      }
+      if (responses.isNotEmpty &&
+          !_isStopping &&
+          identical(_session, session)) {
+        await session.sendToolResponse(responses);
+      }
+      return;
+    }
     if (message is! LiveServerContent) return;
 
     final input = message.inputTranscription?.text;
     if (input != null && input.trim().isNotEmpty) {
+      _latestLiveTranscript = input.trim();
+      _confirmationAllowed = RegExp(
+        r'^(yes|yeah|yep|confirm(?:ed)?|go ahead|do it|okay|ok|please do)(?:[\s,.!]|$)',
+        caseSensitive: false,
+      ).hasMatch(_latestLiveTranscript);
       onUserTranscript(input);
     }
     final output = message.outputTranscription?.text;
@@ -977,12 +1176,9 @@ For requests, ask one question at a time for missing details. Use ISO dates and 
       await _browserAudioOutput.play(bytes);
       return;
     }
-    final audio = ByteData.sublistView(bytes, 0, alignedLength);
-    final samples = List<int>.generate(
-      alignedLength ~/ 2,
-      (index) => audio.getInt16(index * 2, Endian.little),
-      growable: false,
-    );
+    final alignedBytes = Uint8List(alignedLength)
+      ..setRange(0, alignedLength, bytes);
+    final samples = Int16List.view(alignedBytes.buffer);
     await pcm.FlutterPcmSound.feed(pcm.PcmArrayInt16.fromList(samples));
   }
 

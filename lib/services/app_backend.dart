@@ -288,6 +288,8 @@ abstract interface class AppDataRepository {
   Future<String> summarizeLabResult(String uid, String resultId);
   Stream<Map<String, Object?>> watchProfileData(String uid);
   Future<void> saveProfileData(String uid, Map<String, Object?> data);
+  Stream<Map<String, Object?>> watchEmergencyPassport(String uid);
+  Future<void> saveEmergencyPassport(String uid, Map<String, Object?> passport);
   Future<void> saveMessagingToken(String uid, String token);
   Future<void> removeMessagingToken(String uid, String token);
 }
@@ -431,17 +433,116 @@ class FirestoreDataRepository implements AppDataRepository {
       .map((snapshot) => snapshot.data() ?? <String, Object?>{});
 
   @override
-  Future<void> saveProfileData(String uid, Map<String, Object?> data) =>
-      _firestore
-          .collection('users')
-          .doc(uid)
-          .set(data, SetOptions(merge: true));
+  Future<void> saveProfileData(String uid, Map<String, Object?> data) async {
+    final profile = _firestore.collection('users').doc(uid);
+    const passportFields = [
+      'bloodGroup',
+      'heightCm',
+      'weightKg',
+      'allergies',
+      'conditions',
+      'emergencyContactName',
+      'emergencyContactPhone',
+    ];
+    if (!data.keys.any(passportFields.contains)) {
+      await profile.set(data, SetOptions(merge: true));
+      return;
+    }
 
-  @override
-  Future<void> saveMessagingToken(String uid, String token) => _firestore
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(profile);
+      final passportSnapshot = await transaction.get(_passport(uid));
+      final merged = {...?snapshot.data(), ...data};
+      final existingPassport = passportSnapshot.data() ?? const {};
+      transaction.set(profile, data, SetOptions(merge: true));
+      transaction.set(_passport(uid), {
+        'schemaVersion': 1,
+        for (final field in passportFields)
+          field: merged[field] as String? ?? '',
+        for (final field in [
+          'qrConsentName',
+          'qrConsentBlood',
+          'qrConsentHeight',
+          'qrConsentWeight',
+          'qrConsentAllergies',
+          'qrConsentConditions',
+          'qrConsentEmergencyContact',
+          'qrConsentMedications',
+          'qrConsentPreferredHospital',
+        ])
+          field: merged[field] == true,
+        'emergencyContactRelationship':
+            existingPassport['emergencyContactRelationship'] as String? ?? '',
+        'medications': existingPassport['medications'] as String? ?? '',
+        'preferredHospital':
+            existingPassport['preferredHospital'] as String? ?? '',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
+  }
+
+  DocumentReference<Map<String, dynamic>> _passport(String uid) => _firestore
       .collection('users')
       .doc(uid)
-      .set({'fcmToken': token}, SetOptions(merge: true));
+      .collection('passport')
+      .doc('current');
+
+  @override
+  Stream<Map<String, Object?>> watchEmergencyPassport(String uid) =>
+      _passport(uid).snapshots().map(
+        (snapshot) => snapshot.data() == null
+            ? <String, Object?>{}
+            : Map<String, Object?>.from(snapshot.data()!),
+      );
+
+  @override
+  Future<void> saveEmergencyPassport(
+    String uid,
+    Map<String, Object?> passport,
+  ) async {
+    final legacyFields = <String, Object?>{
+      for (final field in [
+        'bloodGroup',
+        'heightCm',
+        'weightKg',
+        'allergies',
+        'conditions',
+        'emergencyContactName',
+        'emergencyContactPhone',
+        'qrConsentName',
+        'qrConsentBlood',
+        'qrConsentHeight',
+        'qrConsentWeight',
+        'qrConsentAllergies',
+        'qrConsentConditions',
+        'qrConsentEmergencyContact',
+        'qrConsentMedications',
+        'qrConsentPreferredHospital',
+      ])
+        field: field.startsWith('qrConsent')
+            ? passport[field] == true
+            : passport[field] as String? ?? '',
+    };
+    final batch = _firestore.batch()
+      ..set(_passport(uid), {
+        ...passport,
+        'schemaVersion': 1,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true))
+      ..set(
+        _firestore.collection('users').doc(uid),
+        legacyFields,
+        SetOptions(merge: true),
+      );
+    await batch.commit();
+  }
+
+  @override
+  Future<void> saveMessagingToken(String uid, String token) =>
+      _firestore.collection('users').doc(uid).set({
+        'fcmToken': token,
+        'timezoneOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
+      }, SetOptions(merge: true));
 
   @override
   Future<void> removeMessagingToken(String uid, String token) async {

@@ -2,10 +2,17 @@ const admin = require('firebase-admin');
 const { VertexAI } = require('@google-cloud/vertexai');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { HttpsError, onCall } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const {
   buildDoctorClaims,
   hashDoctorInviteCode,
 } = require('./doctor-invites');
+const {
+  asDate,
+  localParts,
+  appointmentInstant,
+  dueMedicationTimes,
+} = require('./reminder-schedule');
 
 admin.initializeApp();
 
@@ -295,6 +302,152 @@ exports.notifyNewLabResult = onDocumentCreated(
       });
     } catch (error) {
       console.error('Could not send lab result notification.', error);
+    }
+  },
+);
+
+async function sendReminderOnce(userRef, token, key, title, body, data) {
+  const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 180);
+  const deliveryRef = userRef.collection('reminderDeliveries').doc(safeKey);
+  const claimed = await db.runTransaction(async (transaction) => {
+    const existing = await transaction.get(deliveryRef);
+    if (existing.exists) return false;
+    transaction.create(deliveryRef, {
+      status: 'sending',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return true;
+  });
+  if (!claimed) return false;
+
+  try {
+    await admin.messaging().send({
+      token,
+      notification: { title, body },
+      data: Object.fromEntries(
+        Object.entries(data).map(([name, value]) => [name, String(value)]),
+      ),
+    });
+    await deliveryRef.update({
+      status: 'sent',
+      sentAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return true;
+  } catch (error) {
+    await deliveryRef.delete().catch(() => {});
+    throw error;
+  }
+}
+
+exports.sendScheduledReminders = onSchedule(
+  {
+    schedule: 'every 5 minutes',
+    timeZone: 'UTC',
+    region,
+    maxInstances: 1,
+  },
+  async () => {
+    const now = new Date();
+    const windowMs = 6 * 60_000;
+    const users = await db.collection('users').where('fcmToken', '>', '').get();
+    for (const userSnapshot of users.docs) {
+      const user = userSnapshot.data();
+      const token = user.fcmToken;
+      if (typeof token !== 'string' || !token) continue;
+      const offset = Number.isInteger(user.timezoneOffsetMinutes)
+        ? Math.max(-840, Math.min(840, user.timezoneOffsetMinutes))
+        : 0;
+      const localNow = localParts(now, offset);
+      const localDateKey = [
+        localNow.getUTCFullYear(),
+        String(localNow.getUTCMonth() + 1).padStart(2, '0'),
+        String(localNow.getUTCDate()).padStart(2, '0'),
+      ].join('-');
+
+      try {
+        const userRef = userSnapshot.ref;
+        const [appointments, reminders] = await Promise.all([
+          userRef.collection('appointments').get(),
+          userRef.collection('reminders').where('status', '==', 'scheduled').get(),
+        ]);
+
+        for (const appointmentSnapshot of appointments.docs) {
+          const appointment = appointmentSnapshot.data();
+          if (appointment.status !== 'approved') continue;
+          const at = appointmentInstant(appointment, offset);
+          if (!at) continue;
+          for (const [label, leadMs] of [
+            ['day_before', 24 * 60 * 60_000],
+            ['hour_before', 60 * 60_000],
+          ]) {
+            const until = at.getTime() - leadMs - now.getTime();
+            if (until < 0 || until > windowMs) continue;
+            const title = label === 'day_before'
+              ? 'Appointment tomorrow'
+              : 'Appointment in about an hour';
+            await sendReminderOnce(
+              userRef,
+              token,
+              `appointment_${appointmentSnapshot.id}_${label}`,
+              title,
+              'Open Emergensy to review your confirmed appointment.',
+              { type: 'appointment_reminder', appointmentId: appointmentSnapshot.id },
+            );
+          }
+        }
+
+        for (const reminderSnapshot of reminders.docs) {
+          const reminder = reminderSnapshot.data();
+          const at = asDate(reminder.reminderAt);
+          if (!at) continue;
+          const until = at.getTime() - now.getTime();
+          if (until < 0 || until > windowMs) continue;
+          const sent = await sendReminderOnce(
+            userRef,
+            token,
+            `personal_${reminderSnapshot.id}`,
+            'Your Emergensy reminder',
+            'Open Emergensy to view your reminder.',
+            { type: 'personal_reminder', reminderId: reminderSnapshot.id },
+          );
+          if (sent) {
+            await reminderSnapshot.ref.update({
+              status: 'sent',
+              notifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          }
+        }
+
+        for (const profile of Array.isArray(user.familyProfiles)
+          ? user.familyProfiles
+          : []) {
+          if (profile?.authorized !== true) continue;
+          const memberId = typeof profile.id === 'string' ? profile.id : 'member';
+          const memberName = typeof profile.name === 'string' ? profile.name : 'your family member';
+          for (const medication of Array.isArray(profile.medicationReminders)
+            ? profile.medicationReminders
+            : []) {
+            for (const time of dueMedicationTimes(medication, now, offset)) {
+              const medId = typeof medication.id === 'string' ? medication.id : 'medicine';
+              await sendReminderOnce(
+                userSnapshot.ref,
+                token,
+                `medicine_${memberId}_${medId}_${localDateKey}_${time}`,
+                'Scheduled medicine time',
+                `Check ${memberName}’s medicine schedule in Emergensy.`,
+                {
+                  type: 'medication_reminder',
+                  memberId,
+                  medicationId: medId,
+                  scheduledTime: time,
+                },
+              );
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`Could not process reminders for user ${userSnapshot.id}.`, error);
+      }
     }
   },
 );

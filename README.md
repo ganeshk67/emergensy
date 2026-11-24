@@ -8,8 +8,9 @@ centered page layouts keep the experience consistent and comfortable on phones
 and tablets, while feature icons use shared-element transitions between the
 home and destination pages. A light appearance is available in Profile.
 Features include emergency assistance, a real-time voice assistant, first-aid
-guidance, doctor appointments, lab booking and results, health news, an emergency
-QR profile, a health timeline, and consent-led family profiles.
+guidance, doctor appointments, lab booking and results, health news, Emergency
+Passport 360 with a consent-selected QR, a health timeline, and consent-led
+family profiles.
 
 ## Run
 
@@ -116,6 +117,11 @@ configurations may not support live recording; the Android and iOS apps remain
 available as alternatives.
 
 ## Current scope
+
+The product architecture, Firestore data model, role boundaries, user journeys,
+future integration contracts, security gates, and staged MVP roadmap are in
+[`docs/PRODUCT_BLUEPRINT.md`](docs/PRODUCT_BLUEPRINT.md). It distinguishes
+implemented services from proposed partner integrations.
 
 - Emergency flow collects an emergency type and device location or a manually
   entered address, then presents relevant immediate safety steps and buttons

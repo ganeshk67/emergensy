@@ -49,6 +49,68 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      match /passport/{passportId} {
+        allow get: if owns(userId) && passportId == 'current';
+        allow list: if false;
+        allow create, update: if owns(userId)
+          && passportId == 'current'
+          && request.resource.data.keys().hasOnly([
+            'schemaVersion',
+            'bloodGroup',
+            'heightCm',
+            'weightKg',
+            'allergies',
+            'conditions',
+            'medications',
+            'emergencyContactName',
+            'emergencyContactPhone',
+            'emergencyContactRelationship',
+            'preferredHospital',
+            'qrConsentName',
+            'qrConsentBlood',
+            'qrConsentHeight',
+            'qrConsentWeight',
+            'qrConsentAllergies',
+            'qrConsentConditions',
+            'qrConsentEmergencyContact',
+            'qrConsentMedications',
+            'qrConsentPreferredHospital',
+            'updatedAt'
+          ])
+          && request.resource.data.schemaVersion == 1
+          && request.resource.data.bloodGroup is string
+          && request.resource.data.bloodGroup.size() <= 8
+          && request.resource.data.heightCm is string
+          && request.resource.data.heightCm.size() <= 12
+          && request.resource.data.weightKg is string
+          && request.resource.data.weightKg.size() <= 12
+          && request.resource.data.allergies is string
+          && request.resource.data.allergies.size() <= 1000
+          && request.resource.data.conditions is string
+          && request.resource.data.conditions.size() <= 1000
+          && request.resource.data.medications is string
+          && request.resource.data.medications.size() <= 2000
+          && request.resource.data.emergencyContactName is string
+          && request.resource.data.emergencyContactName.size() <= 100
+          && request.resource.data.emergencyContactPhone is string
+          && request.resource.data.emergencyContactPhone.size() <= 32
+          && request.resource.data.emergencyContactRelationship is string
+          && request.resource.data.emergencyContactRelationship.size() <= 60
+          && request.resource.data.preferredHospital is string
+          && request.resource.data.preferredHospital.size() <= 160
+          && request.resource.data.qrConsentName is bool
+          && request.resource.data.qrConsentBlood is bool
+          && request.resource.data.qrConsentHeight is bool
+          && request.resource.data.qrConsentWeight is bool
+          && request.resource.data.qrConsentAllergies is bool
+          && request.resource.data.qrConsentConditions is bool
+          && request.resource.data.qrConsentEmergencyContact is bool
+          && request.resource.data.qrConsentMedications is bool
+          && request.resource.data.qrConsentPreferredHospital is bool
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if owns(userId) && passportId == 'current';
+      }
+
       match /appointments/{appointmentId} {
         allow read: if owns(userId);
         allow create: if owns(userId)
