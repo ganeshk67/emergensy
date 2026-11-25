@@ -20,12 +20,15 @@ import 'voice_audio_output_stub.dart'
 
 enum VoiceAgentPhase { idle, connecting, thinking, listening, speaking, error }
 
+enum VoiceAssistantFocus { general, mentalWellness, physicalWellness }
+
 class VoiceAgentService {
   VoiceAgentService({
     required this.uid,
     required this.repository,
     required this.patientName,
     required this.familyProfiles,
+    this.focus = VoiceAssistantFocus.general,
     required this.onPhaseChanged,
     required this.onUserTranscript,
     required this.onAssistantTranscript,
@@ -48,6 +51,7 @@ class VoiceAgentService {
   final AppDataRepository repository;
   final String patientName;
   final List<Map<String, Object?>> familyProfiles;
+  final VoiceAssistantFocus focus;
 
   final void Function(VoiceAgentPhase phase) onPhaseChanged;
   final void Function(String transcript) onUserTranscript;
@@ -578,11 +582,17 @@ class VoiceAgentService {
   String _voiceSystemInstruction() =>
       '''$_systemInstruction
 
+${switch (focus) {
+        VoiceAssistantFocus.general => 'Answer general health questions with safe, concise information.',
+        VoiceAssistantFocus.mentalWellness => 'The user opened the mental wellness companion. Listen without judgment, respond with empathy, and offer small optional coping activities or encouragement to contact a trusted person or qualified professional. Do not diagnose or promise treatment. This app has no verified therapist directory or therapy booking service. If the user mentions self-harm, suicide, or immediate danger, respond compassionately and directly encourage contacting a trusted person and local emergency services now; in India call 112. Do not imply that this chat is monitored or can dispatch help.',
+        VoiceAssistantFocus.physicalWellness => 'The user opened the fitness and physical wellness assistant. Help with general workout planning, exercise technique, equipment alternatives, cardio, rest, and recovery. Ask about experience and equipment when useful. Do not diagnose injuries or medical conditions, or give individualized medical clearance. For pain, injury, concerning symptoms, or medical questions, recommend a qualified healthcare professional. Avoid extreme or shaming fitness targets.',
+      }}
+
 The user's local date and time is ${DateTime.now().toLocal().toIso8601String()}. The signed-in user's name is ${patientName.isEmpty ? 'not available' : patientName}. Authorized family profiles: ${familyProfiles.map((p) => p['name']).whereType<String>().join(', ')}. Parse relative dates using this local clock.
 
 When the user asks about today, tomorrow, or upcoming appointments, call list_upcoming_appointments and distinguish confirmed visits from requests waiting for provider approval. When they ask about a family's medicine, doses, or due times, call list_family_medication_schedule and repeat only stored instructions. Never invent or change a medicine dose. Keep spoken answers short and make dates and times explicit.
 
-Emergensy app features: Emergency SOS prepares an alert and does not dispatch responders (India emergency number 112); First Aid care guides; online doctor appointment requests; nearby hospital map and directions; lab test requests and lab results; health news; demo health shop without checkout; Health Timeline; emergency profile and QR; Family Guardian; dark mode and profile settings; this voice assistant. Always use tools for booking, lab requests, and reminders. Doctor choices: ${_doctors.entries.map((e) => '${e.key} (${e.value})').join('; ')}. Appointment time slots: ${_slots.join(', ')}. Lab tests: ${_tests.join('; ')}. Lab collection: Visit a lab or Home collection.
+Emergensy app features: Emergency SOS prepares an alert and does not dispatch responders (India emergency number 112); First Aid care guides; online doctor appointment requests; nearby hospital map and directions; lab test requests and lab results; health news; demo health shop without checkout; Wellness Hub for private self-reported routines and check-ins; emergency profile and QR; Family Guardian; dark mode and profile settings; this voice assistant. Always use tools for booking, lab requests, and reminders. Doctor choices: ${_doctors.entries.map((e) => '${e.key} (${e.value})').join('; ')}. Appointment time slots: ${_slots.join(', ')}. Lab tests: ${_tests.join('; ')}. Lab collection: Visit a lab or Home collection.
 
 For requests, ask one question at a time for missing details. Use ISO dates and exact app options. Never invent availability. For appointments and lab requests, distinguish a saved request from a real provider confirmation. A requested appointment is not confirmed. Mobile notifications depend on notification permission and the deployed scheduled-reminder service. Web reminders are stored but background notifications are not currently configured. When any action tool prepares a draft, read back every important detail and wait for a separate clear yes before calling confirm_pending_action. Never infer confirmation from the original booking request.''';
 

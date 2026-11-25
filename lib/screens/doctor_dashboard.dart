@@ -1,6 +1,7 @@
 import 'package:emergensy/services/app_backend.dart';
 import 'package:emergensy/screens/profile_pages.dart';
 import 'package:emergensy/widgets/centered_content.dart';
+import 'package:emergensy/widgets/section_backdrop.dart';
 import 'package:flutter/material.dart';
 
 class DoctorDashboardPage extends StatefulWidget {
@@ -86,9 +87,12 @@ class _DoctorDemoPageState extends State<DoctorDemoPage> {
           ),
         ],
       ),
-      body: CenteredContent(
-        maxWidth: 900,
-        child: ListView(
+      body: SectionBackdrop(
+        icon: Icons.medical_services_rounded,
+        accent: colors.tertiary,
+        child: CenteredContent(
+          maxWidth: 900,
+          child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
           children: [
             Text(
@@ -217,6 +221,7 @@ class _DoctorDemoPageState extends State<DoctorDemoPage> {
                 ),
             ],
           ],
+          ),
         ),
       ),
     );
@@ -317,9 +322,12 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
           ),
         ],
       ),
-      body: CenteredContent(
-        maxWidth: 900,
-        child: ListView(
+      body: SectionBackdrop(
+        icon: Icons.medical_services_rounded,
+        accent: colors.tertiary,
+        child: CenteredContent(
+          maxWidth: 900,
+          child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
           children: [
             Text(
@@ -376,6 +384,7 @@ class _DoctorDashboardPageState extends State<DoctorDashboardPage> {
               ),
             ),
           ],
+          ),
         ),
       ),
     );

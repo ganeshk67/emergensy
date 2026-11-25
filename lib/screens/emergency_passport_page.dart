@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:emergensy/services/app_backend.dart';
 import 'package:emergensy/widgets/centered_content.dart';
+import 'package:emergensy/widgets/section_backdrop.dart';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -185,7 +186,10 @@ class _EmergencyPassportPageState extends State<EmergencyPassportPage> {
         ],
       ),
       body: SafeArea(
-        child: CenteredContent(
+        child: SectionBackdrop(
+          icon: Icons.health_and_safety_rounded,
+          accent: colors.primary,
+          child: CenteredContent(
           maxWidth: 820,
           child: _loading
               ? const Center(child: CircularProgressIndicator())
@@ -317,6 +321,7 @@ class _EmergencyPassportPageState extends State<EmergencyPassportPage> {
                     ),
                   ],
                 ),
+          ),
         ),
       ),
     );

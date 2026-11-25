@@ -142,20 +142,40 @@ class HospitalSearchService {
 );
 out center tags;
 ''';
-    final response = await _client
-        .post(
-          Uri.https('overpass-api.de', '/api/interpreter'),
-          headers: _headers,
-          body: {'data': query},
-        )
-        .timeout(const Duration(seconds: 35));
-    if (response.statusCode != 200) {
+    Object? decoded;
+    Object? lastError;
+    for (final host in const [
+      'overpass-api.de',
+      'overpass.private.coffee',
+    ]) {
+      try {
+        final candidate = await _client
+            .post(
+              Uri.https(host, '/api/interpreter'),
+              headers: _headers,
+              body: {'data': query},
+            )
+            .timeout(const Duration(seconds: 18));
+        if (candidate.statusCode == 200) {
+          final payload = jsonDecode(candidate.body);
+          if (payload is Map && payload['elements'] is List) {
+            decoded = payload;
+            break;
+          }
+          lastError = 'unexpected response';
+          continue;
+        }
+        lastError = 'HTTP ${candidate.statusCode}';
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (decoded == null) {
       throw Exception(
-        'Nearby hospital search is unavailable right now (${response.statusCode}). Try again in a moment.',
+        'Hospital listings are temporarily unavailable from the map services${lastError == null ? '' : ' ($lastError)'}. Try again in a moment.',
       );
     }
 
-    final decoded = jsonDecode(response.body);
     if (decoded is! Map || decoded['elements'] is! List) {
       throw const FormatException(
         'The map service returned an unexpected response.',

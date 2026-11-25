@@ -6,11 +6,14 @@ import 'package:emergensy/screens/hospital_map_page.dart';
 import 'package:emergensy/screens/doctor_dashboard.dart';
 import 'package:emergensy/screens/emergency_passport_page.dart';
 import 'package:emergensy/screens/profile_pages.dart';
+import 'package:emergensy/screens/wellness_hub_page.dart';
 import 'package:emergensy/screens/voice_assistant_page.dart';
 import 'package:emergensy/services/app_backend.dart';
 import 'package:emergensy/services/hospital_search_service.dart';
+import 'package:emergensy/services/voice_agent_service.dart';
 import 'package:emergensy/theme/app_theme.dart';
 import 'package:emergensy/widgets/centered_content.dart';
+import 'package:emergensy/widgets/section_backdrop.dart';
 import 'package:emergensy/widgets/feature_hero_icon.dart';
 import 'package:emergensy/widgets/emergency_motion.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -968,12 +971,16 @@ class _AppShellState extends State<AppShell> {
     _pushPage(
       Scaffold(
         appBar: AppBar(title: const Text('Shop')),
-        body: CenteredContent(
-          maxWidth: 920,
-          child: ShopPage(
+        body: SectionBackdrop(
+          icon: Icons.shopping_bag_rounded,
+          accent: Theme.of(context).colorScheme.tertiary,
+          child: CenteredContent(
+            maxWidth: 920,
+            child: ShopPage(
             cart: _cart,
             onAdd: _addToCart,
             onRemove: (product) => setState(() => _cart.remove(product)),
+            ),
           ),
         ),
       ),
@@ -984,7 +991,11 @@ class _AppShellState extends State<AppShell> {
     _pushPage(
       Scaffold(
         appBar: AppBar(title: const Text('News')),
-        body: const CenteredContent(maxWidth: 820, child: NewsPage()),
+        body: SectionBackdrop(
+          icon: Icons.newspaper_rounded,
+          accent: Theme.of(context).colorScheme.tertiary,
+          child: const CenteredContent(maxWidth: 820, child: NewsPage()),
+        ),
       ),
     );
   }
@@ -993,18 +1004,25 @@ class _AppShellState extends State<AppShell> {
     _pushPage(
       Scaffold(
         appBar: AppBar(title: const Text('Care guide')),
-        body: const CenteredContent(maxWidth: 820, child: FirstAidPage()),
+        body: SectionBackdrop(
+          icon: Icons.medical_services_rounded,
+          accent: Theme.of(context).colorScheme.primary,
+          child: const CenteredContent(maxWidth: 820, child: FirstAidPage()),
+        ),
       ),
     );
   }
 
-  void _openVoiceAssistant() {
+  void _openVoiceAssistant({
+    VoiceAssistantFocus focus = VoiceAssistantFocus.general,
+  }) {
     _pushPage(
       VoiceAssistantPage(
         user: widget.user,
         repository: widget.dataRepository,
         familyProfiles: _familyProfiles,
         patientName: widget.user.displayName?.trim() ?? '',
+        focus: focus,
       ),
     );
   }
@@ -1013,9 +1031,12 @@ class _AppShellState extends State<AppShell> {
     _pushPage(
       Scaffold(
         appBar: AppBar(title: const Text('Profile & settings')),
-        body: CenteredContent(
-          maxWidth: 720,
-          child: ValueListenableBuilder<bool>(
+        body: SectionBackdrop(
+          icon: Icons.manage_accounts_rounded,
+          accent: Theme.of(context).colorScheme.tertiary,
+          child: CenteredContent(
+            maxWidth: 720,
+            child: ValueListenableBuilder<bool>(
             valueListenable: _darkMode,
             builder: (context, darkMode, _) => ProfilePage(
               user: widget.user,
@@ -1024,14 +1045,17 @@ class _AppShellState extends State<AppShell> {
               onToggleDarkMode: _setDarkMode,
               onSaveData: _saveProfileData,
               onOpenEmergencyPassport: _openEmergencyPassport,
-              onOpenHealthTimeline: () => _pushPage(
-                HealthTimelinePage(
+              onOpenWellnessHub: () => _pushPage(
+                WellnessHubPage(
+                  user: widget.user,
                   data: _profileData,
                   onSaveData: _saveProfileData,
+                  onOpenAssistant: (focus) => _openVoiceAssistant(focus: focus),
                 ),
               ),
               onOpenFamilyGuardian: _openFamilyGuardian,
               onSignOut: _signOut,
+            ),
             ),
           ),
         ),
@@ -1049,9 +1073,14 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  void _openHealthTimeline() {
+  void _openWellnessHub() {
     _pushPage(
-      HealthTimelinePage(data: _profileData, onSaveData: _saveProfileData),
+      WellnessHubPage(
+        user: widget.user,
+        data: _profileData,
+        onSaveData: _saveProfileData,
+        onOpenAssistant: (focus) => _openVoiceAssistant(focus: focus),
+      ),
     );
   }
 
@@ -1072,6 +1101,7 @@ class _AppShellState extends State<AppShell> {
     return Scaffold(
       body: HomePage(
         user: widget.user,
+        wellnessData: _profileData,
         onEmergency: () => unawaited(_launchEmergency()),
         onCall112: () => unawaited(_call112(context)),
         onDoctors: _openDoctors,
@@ -1086,7 +1116,7 @@ class _AppShellState extends State<AppShell> {
         onFirstAid: _openFirstAid,
         onVoiceAssistant: _openVoiceAssistant,
         onEmergencyPassport: _openEmergencyPassport,
-        onHealthTimeline: _openHealthTimeline,
+        onWellnessHub: _openWellnessHub,
         onFamilyGuardian: _openFamilyGuardian,
         onProfile: _openProfile,
       ),
@@ -1302,6 +1332,7 @@ String _firstName(AppUser user) {
 class HomePage extends StatelessWidget {
   const HomePage({
     required this.user,
+    required this.wellnessData,
     required this.onEmergency,
     required this.onCall112,
     required this.onDoctors,
@@ -1313,13 +1344,14 @@ class HomePage extends StatelessWidget {
     required this.onFirstAid,
     required this.onVoiceAssistant,
     required this.onEmergencyPassport,
-    required this.onHealthTimeline,
+    required this.onWellnessHub,
     required this.onFamilyGuardian,
     required this.onProfile,
     super.key,
   });
 
   final AppUser user;
+  final Map<String, Object?> wellnessData;
   final VoidCallback onEmergency;
   final VoidCallback onCall112;
   final VoidCallback onDoctors;
@@ -1331,7 +1363,7 @@ class HomePage extends StatelessWidget {
   final VoidCallback onFirstAid;
   final VoidCallback onVoiceAssistant;
   final VoidCallback onEmergencyPassport;
-  final VoidCallback onHealthTimeline;
+  final VoidCallback onWellnessHub;
   final VoidCallback onFamilyGuardian;
   final VoidCallback onProfile;
 
@@ -1381,12 +1413,6 @@ class HomePage extends StatelessWidget {
         onReports,
       ),
       _HomeFeature(
-        Icons.monitor_heart_outlined,
-        'Health timeline',
-        'Keep notes for your next visit',
-        onHealthTimeline,
-      ),
-      _HomeFeature(
         Icons.health_and_safety_outlined,
         'Emergency Passport 360',
         'Your medical details and shareable QR',
@@ -1419,7 +1445,19 @@ class HomePage extends StatelessWidget {
     ];
 
     return SafeArea(
-      child: CenteredContent(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/images/medical_wellness_background.jpg',
+            fit: BoxFit.cover,
+          ),
+          ColoredBox(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.black.withValues(alpha: .86)
+                : Colors.white.withValues(alpha: .86),
+          ),
+          CenteredContent(
         maxWidth: 1120,
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -1487,6 +1525,14 @@ class HomePage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 14),
+                _Reveal(
+                  delay: const Duration(milliseconds: 90),
+                  child: _WeeklyWellnessCard(
+                    data: wellnessData,
+                    onOpen: onWellnessHub,
+                  ),
+                ),
+                const SizedBox(height: 14),
                 _HomeHero(quote: quote),
                 const SizedBox(height: 28),
                 Row(
@@ -1536,9 +1582,190 @@ class HomePage extends StatelessWidget {
             );
           },
         ),
+          ),
+        ],
       ),
     );
   }
+}
+
+class _WeeklyWellnessCard extends StatelessWidget {
+  const _WeeklyWellnessCard({required this.data, required this.onOpen});
+
+  final Map<String, Object?> data;
+  final VoidCallback onOpen;
+
+  Map<String, Object?> _asMap(Object? value) => value is Map
+      ? Map<String, Object?>.from(value)
+      : <String, Object?>{};
+
+  List<Map<String, Object?>> _records(Object? value) => value is List
+      ? value.whereType<Map>().map(_asMap).toList()
+      : <Map<String, Object?>>[];
+
+  String _key(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final hub = _asMap(data['wellnessHub']);
+    final workouts = _records(hub['workouts']);
+    final cardio = _records(hub['cardio']);
+    final moods = _records(hub['moodHistory']);
+    final reflections = _records(hub['reflections']);
+    final today = DateTime.now();
+    final points = List.generate(7, (index) {
+      final date = DateTime(today.year, today.month, today.day)
+          .subtract(Duration(days: 6 - index));
+      final key = _key(date);
+      final physical = [...workouts, ...cardio]
+          .where((item) => item['date'] == key)
+          .length;
+      final mental = [...moods, ...reflections]
+          .where((item) => item['date'] == key)
+          .length;
+      return (date: date, physical: physical, mental: mental);
+    });
+    final peak = points.fold<int>(0, (value, point) {
+      final max = point.physical > point.mental
+          ? point.physical
+          : point.mental;
+      return max > value ? max : value;
+    });
+    final hasEntries = peak > 0;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 17, 18, 15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: colors.primaryContainer,
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Icon(Icons.spa_rounded, color: colors.primary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Wellness Hub',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Text(
+                        'Your week, at a glance',
+                        style: TextStyle(color: colors.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.arrow_forward_rounded, color: colors.primary),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                _legendDot(colors.primary, 'Movement'),
+                const SizedBox(width: 16),
+                _legendDot(colors.tertiary, 'Mind check-ins'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 100,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: points.map((point) {
+                  final physicalHeight = point.physical == 0
+                      ? 5.0
+                      : 8.0 + 42.0 * point.physical / peak;
+                  final mentalHeight = point.mental == 0
+                      ? 5.0
+                      : 8.0 + 42.0 * point.mental / peak;
+                  return Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        SizedBox(
+                          height: 54,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _progressBar(colors.primary, physicalHeight),
+                              const SizedBox(width: 3),
+                              _progressBar(colors.tertiary, mentalHeight),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          const ['M', 'T', 'W', 'T', 'F', 'S', 'S'][
+                            point.date.weekday - 1
+                          ],
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            Text(
+              hasEntries
+                  ? 'Check-ins show engagement, not whether you are doing well or poorly.'
+                  : 'Log movement or a mood check-in to begin your private weekly view.',
+              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 11),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onOpen,
+                icon: const Icon(Icons.open_in_new_rounded, size: 17),
+                label: const Text('Open Wellness Hub'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _legendDot(Color color, String label) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 9,
+        height: 9,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+      const SizedBox(width: 6),
+      Text(label, style: const TextStyle(fontSize: 11)),
+    ],
+  );
+
+  Widget _progressBar(Color color, double height) => Container(
+    width: 8,
+    height: height,
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: height <= 5 ? .2 : .9),
+      borderRadius: BorderRadius.circular(6),
+    ),
+  );
 }
 
 class _HomeFeature {
@@ -2050,7 +2277,12 @@ class _DoctorBookingsPageState extends State<DoctorBookingsPage> {
       appBar: AppBar(title: const Text('Doctor appointments')),
       body: SafeArea(
         top: false,
-        child: CenteredContent(
+        child: SectionBackdrop(
+          icon: widget.initialMode == 'In-person'
+              ? Icons.local_hospital_rounded
+              : Icons.calendar_month_rounded,
+          accent: Theme.of(context).colorScheme.primary,
+          child: CenteredContent(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
             children: [
@@ -2108,6 +2340,7 @@ class _DoctorBookingsPageState extends State<DoctorBookingsPage> {
                 text: 'Online requests stay in your private Firebase account. In-person requests for a selected facility appear in its verified doctor queue, but are not confirmed until a doctor approves them. Map listings are not proof that a facility is connected.',
               ),
             ],
+          ),
           ),
         ),
       ),
@@ -2620,7 +2853,12 @@ class _LabTestsPageState extends State<LabTestsPage> {
       appBar: AppBar(title: const Text('Lab tests')),
       body: SafeArea(
         top: false,
-        child: CenteredContent(
+        child: SectionBackdrop(
+          icon: widget.heroTag == 'My reports'
+              ? Icons.folder_shared_rounded
+              : Icons.biotech_rounded,
+          accent: Theme.of(context).colorScheme.tertiary,
+          child: CenteredContent(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
             children: [
@@ -2680,6 +2918,7 @@ class _LabTestsPageState extends State<LabTestsPage> {
                     'Verified reports require a lab integration.',
               ),
             ],
+          ),
           ),
         ),
       ),
@@ -3503,10 +3742,14 @@ class _EmergencyRequestPageState extends State<EmergencyRequestPage> {
       ),
       body: SafeArea(
         top: false,
-        child: CenteredContent(
+        child: SectionBackdrop(
+          icon: Icons.emergency_rounded,
+          accent: Theme.of(context).colorScheme.error,
+          child: CenteredContent(
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 220),
             child: _showGuidance ? _buildGuidance() : _buildRequestForm(),
+          ),
           ),
         ),
       ),
@@ -4505,7 +4748,10 @@ class _ShopPageState extends State<ShopPage> {
     final total = widget.cart.fold<double>(0, (sum, item) => sum + item.price);
 
     return SafeArea(
-      child: Column(
+      child: SectionBackdrop(
+        icon: Icons.shopping_bag_rounded,
+        accent: Theme.of(context).colorScheme.tertiary,
+        child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
@@ -4598,6 +4844,7 @@ class _ShopPageState extends State<ShopPage> {
               onRemove: _removeProduct,
             ),
         ],
+        ),
       ),
     );
   }
@@ -5004,7 +5251,10 @@ class _NewsPageState extends State<NewsPage> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Column(
+      child: SectionBackdrop(
+        icon: Icons.newspaper_rounded,
+        accent: Theme.of(context).colorScheme.tertiary,
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
@@ -5082,6 +5332,7 @@ class _NewsPageState extends State<NewsPage> {
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -5286,7 +5537,10 @@ class FirstAidPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return SafeArea(
-      child: ListView(
+      child: SectionBackdrop(
+        icon: Icons.medical_services_rounded,
+        accent: colors.primary,
+        child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
         children: [
           Row(
@@ -5350,6 +5604,7 @@ class FirstAidPage extends StatelessWidget {
             ),
           ),
         ],
+        ),
       ),
     );
   }

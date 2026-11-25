@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:emergensy/services/hospital_search_service.dart';
 import 'package:emergensy/widgets/emergency_motion.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -24,6 +27,7 @@ class _HospitalMapPageState extends State<HospitalMapPage>
       widget.service ?? HospitalSearchService();
   final _mapController = MapController();
   final _areaController = TextEditingController();
+  final _tileResetController = StreamController<void>.broadcast();
   final _distance = const Distance();
   late final AnimationController _cameraAnimation;
   LatLng? _cameraStart;
@@ -32,6 +36,8 @@ class _HospitalMapPageState extends State<HospitalMapPage>
   double _zoomTarget = 4;
   double? _accuracyMeters;
   bool _mapReady = false;
+  bool _tileLoadFailed = false;
+  String? _tileErrorDetails;
   LatLng? _center;
   String? _locationLabel;
   List<HospitalPlace> _hospitals = [];
@@ -82,6 +88,7 @@ class _HospitalMapPageState extends State<HospitalMapPage>
     _cameraAnimation.dispose();
     _areaController.dispose();
     _mapController.dispose();
+    _tileResetController.close();
     if (widget.service == null) _service.close();
     super.dispose();
   }
@@ -114,21 +121,29 @@ class _HospitalMapPageState extends State<HospitalMapPage>
         );
       }
 
-      // A cached fix makes the map useful immediately when the OS already
-      // knows the device location; otherwise ask for a fresh balanced fix.
-      final cached = await Geolocator.getLastKnownPosition();
-      final position =
-          cached ??
-          await Geolocator.getCurrentPosition(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.medium,
-              timeLimit: Duration(seconds: 8),
-            ),
-          );
+      // Geolocator Web does not implement getLastKnownPosition; calling it
+      // throws before the browser's current-position request can run.
+      final cached = kIsWeb ? null : await Geolocator.getLastKnownPosition();
+      Position position;
+      var usingLastKnownPosition = false;
+      try {
+        position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.medium,
+            timeLimit: Duration(seconds: 18),
+          ),
+        );
+      } catch (_) {
+        if (cached == null) rethrow;
+        position = cached;
+        usingLastKnownPosition = true;
+      }
       if (!mounted || generation != _searchGeneration) return;
       await _loadHospitals(
         LatLng(position.latitude, position.longitude),
-        label: 'Near your current location',
+        label: usingLastKnownPosition
+            ? 'Using your last known location'
+            : 'Near your current location',
         accuracyMeters: position.accuracy,
       );
     } catch (error) {
@@ -242,6 +257,30 @@ class _HospitalMapPageState extends State<HospitalMapPage>
     }
   }
 
+  Future<void> _openExternalHospitalSearch() async {
+    final area = _areaController.text.trim();
+    final center = _center;
+    final query = center != null
+        ? 'hospitals near ${center.latitude},${center.longitude}'
+        : area.isNotEmpty
+        ? 'hospitals near $area'
+        : 'hospitals near me';
+    final uri = Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': query,
+    });
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw StateError('No maps app could open this search.');
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to open Maps: $error')),
+      );
+    }
+  }
+
   List<Marker> _markers(ColorScheme colors) {
     final center = _center;
     return [
@@ -304,6 +343,11 @@ class _HospitalMapPageState extends State<HospitalMapPage>
                   icon: const Icon(Icons.refresh),
                   label: const Text('Try again'),
                 ),
+                TextButton.icon(
+                  onPressed: _openExternalHospitalSearch,
+                  icon: const Icon(Icons.open_in_new_rounded),
+                  label: const Text('Search hospitals in Maps'),
+                ),
               ],
             ),
           ),
@@ -331,10 +375,21 @@ class _HospitalMapPageState extends State<HospitalMapPage>
         child: Center(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Text(
-              'No hospitals or clinics were listed within 12 km of this area. Try another location.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: colors.onSurfaceVariant),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'No hospitals or clinics were listed within 12 km of this area. Try another location.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: colors.onSurfaceVariant),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: _openExternalHospitalSearch,
+                  icon: const Icon(Icons.open_in_new_rounded),
+                  label: const Text('Search hospitals in Maps'),
+                ),
+              ],
             ),
           ),
         ),
@@ -426,6 +481,14 @@ class _HospitalMapPageState extends State<HospitalMapPage>
                     urlTemplate:
                         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.example.emergensy',
+                    reset: _tileResetController.stream,
+                    errorTileCallback: (tile, error, stackTrace) {
+                      if (!mounted || _tileLoadFailed) return;
+                  setState(() {
+                    _tileLoadFailed = true;
+                    _tileErrorDetails = error.toString();
+                  });
+                    },
                   ),
                   if (_center != null && _accuracyMeters != null)
                     CircleLayer(
@@ -495,6 +558,58 @@ class _HospitalMapPageState extends State<HospitalMapPage>
                 ),
               ),
             ),
+            if (_tileLoadFailed)
+              Positioned(
+                top: 132,
+                left: 18,
+                right: 18,
+                child: Card(
+                  color: colors.errorContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+                    child: Row(
+                      children: [
+                        Icon(Icons.map_outlined, color: colors.onErrorContainer),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Map tiles could not load. Check your connection; hospital results can still appear below.',
+                                style: TextStyle(color: colors.onErrorContainer),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (_tileErrorDetails != null)
+                                Text(
+                                  _tileErrorDetails!,
+                                  style: TextStyle(
+                                    color: colors.onErrorContainer,
+                                    fontSize: 10,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _tileLoadFailed = false;
+                              _tileErrorDetails = null;
+                            });
+                            _tileResetController.add(null);
+                          },
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             DraggableScrollableSheet(
               initialChildSize: .36,
               minChildSize: .24,

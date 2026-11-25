@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:emergensy/services/voice_agent_service.dart';
+import 'package:emergensy/widgets/section_backdrop.dart';
 import 'package:emergensy/services/app_backend.dart';
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -12,6 +13,7 @@ class VoiceAssistantPage extends StatefulWidget {
     required this.repository,
     this.familyProfiles = const [],
     this.patientName = '',
+    this.focus = VoiceAssistantFocus.general,
     super.key,
   });
 
@@ -19,6 +21,7 @@ class VoiceAssistantPage extends StatefulWidget {
   final AppDataRepository repository;
   final List<Map<String, Object?>> familyProfiles;
   final String patientName;
+  final VoiceAssistantFocus focus;
 
   @override
   State<VoiceAssistantPage> createState() => _VoiceAssistantPageState();
@@ -47,6 +50,7 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
       repository: widget.repository,
       patientName: widget.patientName,
       familyProfiles: widget.familyProfiles,
+      focus: widget.focus,
       onPhaseChanged: (phase) {
         if (mounted) setState(() => _phase = phase);
       },
@@ -194,7 +198,11 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
     final supported = _agent.supportsPlatform;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Voice assistant'),
+        title: Text(switch (widget.focus) {
+          VoiceAssistantFocus.general => 'Voice assistant',
+          VoiceAssistantFocus.mentalWellness => 'Mental wellness companion',
+          VoiceAssistantFocus.physicalWellness => 'Fitness and wellness assistant',
+        }),
         actions: [
           if (_isActive)
             IconButton(
@@ -207,7 +215,16 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
       ),
       body: SafeArea(
         top: false,
-        child: Center(
+        child: SectionBackdrop(
+          icon: widget.focus == VoiceAssistantFocus.mentalWellness
+              ? Icons.psychology_alt_rounded
+              : widget.focus == VoiceAssistantFocus.physicalWellness
+              ? Icons.fitness_center_rounded
+              : Icons.graphic_eq_rounded,
+          accent: widget.focus == VoiceAssistantFocus.mentalWellness
+              ? colors.tertiary
+              : colors.primary,
+          child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
             child: ListView(
@@ -336,6 +353,7 @@ class _VoiceAssistantPageState extends State<VoiceAssistantPage>
                 ),
               ],
             ),
+          ),
           ),
         ),
       ),
