@@ -484,10 +484,10 @@ class _HospitalMapPageState extends State<HospitalMapPage>
                     reset: _tileResetController.stream,
                     errorTileCallback: (tile, error, stackTrace) {
                       if (!mounted || _tileLoadFailed) return;
-                  setState(() {
-                    _tileLoadFailed = true;
-                    _tileErrorDetails = error.toString();
-                  });
+                      setState(() {
+                        _tileLoadFailed = true;
+                        _tileErrorDetails = error.toString();
+                      });
                     },
                   ),
                   if (_center != null && _accuracyMeters != null)

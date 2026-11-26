@@ -886,6 +886,11 @@ class _AppShellState extends State<AppShell> {
       _EmergencyRoute(
         user: widget.user,
         repository: widget.dataRepository,
+        afterAdmissionData: _profileData['afterAdmission'] is Map
+            ? Map<String, Object?>.from(
+                _profileData['afterAdmission'] as Map,
+              )
+            : null,
         emergencyContactName: _profileData['emergencyContactName'] is String
             ? _profileData['emergencyContactName'] as String
             : null,
@@ -977,9 +982,10 @@ class _AppShellState extends State<AppShell> {
           child: CenteredContent(
             maxWidth: 920,
             child: ShopPage(
-            cart: _cart,
-            onAdd: _addToCart,
-            onRemove: (product) => setState(() => _cart.remove(product)),
+              cart: _cart,
+              onAdd: _addToCart,
+              onRemove: (product) => setState(() => _cart.remove(product)),
+              onOpenGuides: _openFirstAid,
             ),
           ),
         ),
@@ -1007,7 +1013,13 @@ class _AppShellState extends State<AppShell> {
         body: SectionBackdrop(
           icon: Icons.medical_services_rounded,
           accent: Theme.of(context).colorScheme.primary,
-          child: const CenteredContent(maxWidth: 820, child: FirstAidPage()),
+          child: CenteredContent(
+            maxWidth: 820,
+            child: FirstAidPage(
+              onAdd: _addToCart,
+              onBrowseShop: _openShop,
+            ),
+          ),
         ),
       ),
     );
@@ -1179,6 +1191,7 @@ class _EmergencyRoute extends PageRouteBuilder<void> {
   _EmergencyRoute({
     required AppUser user,
     required AppDataRepository repository,
+    Map<String, Object?>? afterAdmissionData,
     String? emergencyContactName,
     String? emergencyContactPhone,
   }) : super(
@@ -1186,6 +1199,7 @@ class _EmergencyRoute extends PageRouteBuilder<void> {
              EmergencyRequestPage(
                user: user,
                repository: repository,
+               afterAdmissionData: afterAdmissionData,
                emergencyContactName: emergencyContactName,
                emergencyContactPhone: emergencyContactPhone,
              ),
@@ -3556,6 +3570,7 @@ class EmergencyRequestPage extends StatefulWidget {
   const EmergencyRequestPage({
     required this.user,
     required this.repository,
+    this.afterAdmissionData,
     this.emergencyContactName,
     this.emergencyContactPhone,
     super.key,
@@ -3563,6 +3578,7 @@ class EmergencyRequestPage extends StatefulWidget {
 
   final AppUser user;
   final AppDataRepository repository;
+  final Map<String, Object?>? afterAdmissionData;
   final String? emergencyContactName;
   final String? emergencyContactPhone;
 
@@ -3582,6 +3598,11 @@ class _EmergencyRequestPageState extends State<EmergencyRequestPage> {
 
   final _detailsController = TextEditingController();
   final _manualLocationController = TextEditingController();
+  final _hospitalNameController = TextEditingController();
+  final _hospitalAddressController = TextEditingController();
+  final _hospitalPhoneController = TextEditingController();
+  final _operationController = TextEditingController();
+  final _estimatedCostController = TextEditingController();
   String? _situation;
   Position? _position;
   bool _findingLocation = false;
@@ -3591,11 +3612,35 @@ class _EmergencyRequestPageState extends State<EmergencyRequestPage> {
   String? _locationError;
   String? _alertSaveError;
   String? _alertId;
+  DateTime? _operationAt;
+  bool _savingAdmissionDetails = false;
+  bool _savingOperationReminder = false;
+  bool _operationReminderSaved = false;
+  String? _admissionMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    final saved = widget.afterAdmissionData;
+    _hospitalNameController.text = saved?['hospitalName'] as String? ?? '';
+    _hospitalAddressController.text =
+        saved?['hospitalAddress'] as String? ?? '';
+    _hospitalPhoneController.text = saved?['hospitalPhone'] as String? ?? '';
+    _operationController.text = saved?['operation'] as String? ?? '';
+    _estimatedCostController.text = saved?['estimatedCost'] as String? ?? '';
+    final savedAt = saved?['operationAt'];
+    if (savedAt is String) _operationAt = DateTime.tryParse(savedAt);
+  }
 
   @override
   void dispose() {
     _detailsController.dispose();
     _manualLocationController.dispose();
+    _hospitalNameController.dispose();
+    _hospitalAddressController.dispose();
+    _hospitalPhoneController.dispose();
+    _operationController.dispose();
+    _estimatedCostController.dispose();
     super.dispose();
   }
 
@@ -4043,6 +4088,8 @@ class _EmergencyRequestPageState extends State<EmergencyRequestPage> {
         ...steps.indexed.map(
           (entry) => _ImmediateStep(number: entry.$1 + 1, text: entry.$2),
         ),
+        const SizedBox(height: 18),
+        _buildAfterAdmissionCard(),
         const SizedBox(height: 12),
         OutlinedButton.icon(
           onPressed: () => setState(() => _showGuidance = false),
@@ -4050,6 +4097,157 @@ class _EmergencyRequestPageState extends State<EmergencyRequestPage> {
           label: const Text('Edit emergency details'),
         ),
       ],
+    );
+  }
+
+  Widget _buildAfterAdmissionCard() {
+    final colors = Theme.of(context).colorScheme;
+    final operationAt = _operationAt;
+    final dateLabel = operationAt == null
+        ? 'Choose date and time'
+        : '${MaterialLocalizations.of(context).formatMediumDate(operationAt)} · ${TimeOfDay.fromDateTime(operationAt).format(context)}';
+
+    return Card(
+      color: colors.surface,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: _border),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: ExpansionTile(
+        leading: CircleAvatar(
+          backgroundColor: colors.errorContainer,
+          child: Icon(Icons.local_hospital_outlined, color: colors.error),
+        ),
+        title: const Text(
+          'After hospital admission',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: const Text('Save hospital details, operation reminders and cost estimates'),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          TextField(
+            controller: _hospitalNameController,
+            maxLength: 160,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Hospital name',
+              prefixIcon: Icon(Icons.local_hospital_outlined),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _hospitalAddressController,
+            maxLength: 300,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Hospital address',
+              prefixIcon: Icon(Icons.location_on_outlined),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _hospitalPhoneController,
+            maxLength: 40,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Hospital phone',
+              prefixIcon: Icon(Icons.call_outlined),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _operationController,
+            maxLength: 90,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Operation or procedure',
+              hintText: 'For example, scheduled procedure',
+              prefixIcon: Icon(Icons.medical_services_outlined),
+            ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _pickOperationDateTime,
+            icon: const Icon(Icons.notifications_active_outlined),
+            label: Text(dateLabel),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _estimatedCostController,
+            maxLength: 30,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Estimated operational cost (INR)',
+              hintText: 'Optional; enter the estimate from your provider',
+              prefixIcon: Icon(Icons.currency_rupee),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'This is your own estimate, not a hospital quote or confirmed bill.',
+              style: TextStyle(color: _muted, fontSize: 12, height: 1.4),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _savingAdmissionDetails ? null : _saveAdmissionDetails,
+              icon: _savingAdmissionDetails
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_outlined),
+              label: const Text('Save hospital details'),
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _savingOperationReminder || _operationReminderSaved
+                  ? null
+                  : _saveOperationReminder,
+              icon: _savingOperationReminder
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      _operationReminderSaved
+                          ? Icons.check_circle_outline
+                          : Icons.notifications_outlined,
+                    ),
+              label: Text(
+                _operationReminderSaved
+                    ? 'Operation reminder saved'
+                    : 'Save operation reminder',
+              ),
+            ),
+          ),
+          if (_admissionMessage != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                _admissionMessage!,
+                style: TextStyle(
+                  color: _admissionMessage!.startsWith('Could not')
+                      ? colors.error
+                      : colors.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -4067,6 +4265,112 @@ class _EmergencyRequestPageState extends State<EmergencyRequestPage> {
     } catch (error) {
       if (!mounted) return;
       _showMessage('Unable to open the map: $error');
+    }
+  }
+
+  Future<void> _pickOperationDateTime() async {
+    final now = DateTime.now();
+    final initial = _operationAt ?? now.add(const Duration(days: 1));
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial.isBefore(now) ? now : initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null || !mounted) return;
+    setState(() {
+      _operationAt = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
+      _operationReminderSaved = false;
+      _admissionMessage = null;
+    });
+  }
+
+  Future<void> _saveAdmissionDetails() async {
+    final hospitalName = _hospitalNameController.text.trim();
+    if (hospitalName.isEmpty) {
+      _showMessage('Enter the hospital name first.');
+      return;
+    }
+    final costText = _estimatedCostController.text.trim().replaceAll(',', '');
+    final cost = costText.isEmpty ? null : double.tryParse(costText);
+    if (costText.isNotEmpty && (cost == null || !cost.isFinite || cost < 0)) {
+      _showMessage('Enter a valid estimated cost, or leave it blank.');
+      return;
+    }
+
+    setState(() {
+      _savingAdmissionDetails = true;
+      _admissionMessage = null;
+    });
+    try {
+      await widget.repository.saveProfileData(widget.user.uid, {
+        'afterAdmission': {
+          'hospitalName': hospitalName,
+          'hospitalAddress': _hospitalAddressController.text.trim(),
+          'hospitalPhone': _hospitalPhoneController.text.trim(),
+          'operation': _operationController.text.trim(),
+          'operationAt': _operationAt?.toIso8601String(),
+          'estimatedCost': cost == null ? '' : cost.toStringAsFixed(2),
+          'updatedAt': DateTime.now().toIso8601String(),
+        },
+      });
+      if (!mounted) return;
+      setState(() => _admissionMessage = 'Hospital details saved to your account.');
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _admissionMessage = 'Could not save hospital details: $error');
+    } finally {
+      if (mounted) setState(() => _savingAdmissionDetails = false);
+    }
+  }
+
+  Future<void> _saveOperationReminder() async {
+    final operation = _operationController.text.trim();
+    final reminderAt = _operationAt;
+    if (operation.isEmpty) {
+      _showMessage('Enter the operation or procedure before setting a reminder.');
+      return;
+    }
+    if (reminderAt == null || !reminderAt.isAfter(DateTime.now())) {
+      _showMessage('Choose a future date and time for the reminder.');
+      return;
+    }
+
+    setState(() {
+      _savingOperationReminder = true;
+      _admissionMessage = null;
+    });
+    try {
+      await widget.repository.saveReminder(widget.user.uid, {
+        'title': 'Hospital operation: $operation',
+        'details': [
+          _hospitalNameController.text.trim(),
+          _hospitalAddressController.text.trim(),
+        ].where((part) => part.isNotEmpty).join(' - '),
+        'reminderAt': reminderAt,
+      });
+      if (!mounted) return;
+      setState(() {
+        _operationReminderSaved = true;
+        _admissionMessage =
+            'Operation reminder saved. Device notifications depend on the scheduled-reminder service and notification settings.';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _admissionMessage = 'Could not save the reminder: $error');
+    } finally {
+      if (mounted) setState(() => _savingOperationReminder = false);
     }
   }
 }
@@ -4658,6 +4962,14 @@ const _products = [
     category: 'First aid',
   ),
   ShopProduct(
+    id: 'non-stick-dressing',
+    name: 'Non-stick sterile dressings',
+    description: 'Loose covering for minor burns · 5 pack',
+    price: 119,
+    icon: Icons.medical_services_outlined,
+    category: 'First aid',
+  ),
+  ShopProduct(
     id: 'antiseptic',
     name: 'Antiseptic solution',
     description: 'For minor wound cleansing · 100 ml',
@@ -4715,12 +5027,14 @@ class ShopPage extends StatefulWidget {
     required this.cart,
     required this.onAdd,
     required this.onRemove,
+    required this.onOpenGuides,
     super.key,
   });
 
   final List<ShopProduct> cart;
   final ValueChanged<ShopProduct> onAdd;
   final ValueChanged<ShopProduct> onRemove;
+  final VoidCallback onOpenGuides;
 
   @override
   State<ShopPage> createState() => _ShopPageState();
@@ -4796,6 +5110,14 @@ class _ShopPageState extends State<ShopPage> {
                 Text(
                   'Use medicines only as directed on the package or by a pharmacist.',
                   style: TextStyle(color: _muted, fontSize: 11),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: widget.onOpenGuides,
+                    icon: const Icon(Icons.medical_information_outlined),
+                    label: const Text('Open first-aid guide'),
+                  ),
                 ),
                 const SizedBox(height: 14),
                 SizedBox(
@@ -5491,7 +5813,14 @@ Future<void> _openArticle(BuildContext context, String url) async {
 }
 
 class FirstAidPage extends StatelessWidget {
-  const FirstAidPage({super.key});
+  const FirstAidPage({
+    required this.onAdd,
+    required this.onBrowseShop,
+    super.key,
+  });
+
+  final ValueChanged<ShopProduct> onAdd;
+  final VoidCallback onBrowseShop;
 
   static const _guides = [
     _AidGuide(
@@ -5502,6 +5831,9 @@ class FirstAidPage extends StatelessWidget {
           'Use clean gauze or cloth and apply steady direct pressure. '
           'If bleeding is severe, does not stop, or the wound is deep, '
           'call emergency services immediately. Do not remove an embedded object.',
+      productIds: ['gauze', 'saline', 'bandage'],
+      essentialsNote:
+          'For minor cuts, gauze can help with pressure; rinse and cover the wound once bleeding is controlled.',
     ),
     _AidGuide(
       icon: Icons.local_fire_department_outlined,
@@ -5511,6 +5843,9 @@ class FirstAidPage extends StatelessWidget {
           'Cool a minor burn under clean, cool running water for 20 minutes. '
           'Do not use ice, butter, or creams. Seek urgent medical help for '
           'large, deep, facial, or chemical/electrical burns.',
+      productIds: ['non-stick-dressing'],
+      essentialsNote:
+          'Cool the burn under running water first. A non-stick dressing can loosely cover a minor burn; do not use creams or sticky dressings.',
     ),
     _AidGuide(
       icon: Icons.air_outlined,
@@ -5520,6 +5855,8 @@ class FirstAidPage extends StatelessWidget {
           'If someone cannot cough, breathe, or speak, call emergency services '
           'and follow instructions from the dispatcher. If they become '
           'unresponsive, begin CPR only if you are trained or guided to do so.',
+      essentialsNote:
+          'No shop item is recommended. Call 112 and follow the dispatcher’s instructions.',
     ),
     _AidGuide(
       icon: Icons.sick_outlined,
@@ -5530,6 +5867,8 @@ class FirstAidPage extends StatelessWidget {
           'Do not give food or drink if they are unconscious or not fully alert. '
           'Call emergency services if they do not recover quickly or have '
           'chest pain, trouble breathing, or an injury.',
+      essentialsNote:
+          'No shop item is recommended. Focus on keeping the person safe and monitoring them.',
     ),
   ];
 
@@ -5552,7 +5891,7 @@ class FirstAidPage extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'First aid',
+                  'First aid & essentials',
                   style: TextStyle(
                     color: _ink,
                     fontSize: 25,
@@ -5565,7 +5904,7 @@ class FirstAidPage extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Simple guidance for common situations',
+            'Issue-specific guidance with useful supplies when appropriate',
             style: TextStyle(color: _muted),
           ),
           const SizedBox(height: 16),
@@ -5595,12 +5934,23 @@ class FirstAidPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: onBrowseShop,
+              icon: const Icon(Icons.shopping_bag_outlined),
+              label: const Text('Browse all health essentials'),
+            ),
+          ),
           ..._guides.indexed.map(
             (entry) => _Reveal(
               key: ValueKey('aid-${entry.$2.title}'),
               delay: Duration(milliseconds: 55 * entry.$1),
               duration: const Duration(milliseconds: 400),
-              child: _AidCard(guide: entry.$2),
+              child: _AidCard(
+                guide: entry.$2,
+                onAdd: onAdd,
+              ),
             ),
           ),
         ],
@@ -5616,18 +5966,23 @@ class _AidGuide {
     required this.title,
     required this.summary,
     required this.details,
+    required this.productIds,
+    required this.essentialsNote,
   });
 
   final IconData icon;
   final String title;
   final String summary;
   final String details;
+  final List<String> productIds;
+  final String essentialsNote;
 }
 
 class _AidCard extends StatelessWidget {
-  const _AidCard({required this.guide});
+  const _AidCard({required this.guide, required this.onAdd});
 
   final _AidGuide guide;
+  final ValueChanged<ShopProduct> onAdd;
 
   @override
   Widget build(BuildContext context) {
@@ -5655,8 +6010,73 @@ class _AidCard extends StatelessWidget {
         childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
         children: [
           Text(guide.details, style: TextStyle(color: _ink, height: 1.45)),
+          const SizedBox(height: 14),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Useful essentials',
+              style: TextStyle(
+                color: _ink,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              guide.essentialsNote,
+              style: TextStyle(color: _muted, height: 1.4),
+            ),
+          ),
+          for (final id in guide.productIds)
+            if (_products.any((product) => product.id == id))
+              _AidProductRow(
+                product: _products.firstWhere((product) => product.id == id),
+                onAdd: () => onAdd(
+                  _products.firstWhere((product) => product.id == id),
+                ),
+              ),
         ],
       ),
     );
   }
+}
+
+class _AidProductRow extends StatelessWidget {
+  const _AidProductRow({required this.product, required this.onAdd});
+
+  final ShopProduct product;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 8),
+    child: Row(
+      children: [
+        Icon(product.icon, color: _teal, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                product.name,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              Text(
+                '₹${product.price.toStringAsFixed(0)}',
+                style: TextStyle(color: _muted, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        OutlinedButton.icon(
+          onPressed: onAdd,
+          icon: const Icon(Icons.add_shopping_cart, size: 17),
+          label: const Text('Add'),
+        ),
+      ],
+    ),
+  );
 }
