@@ -1123,7 +1123,6 @@ class _AppShellState extends State<AppShell> {
         ),
         onLabs: _openLabs,
         onReports: () => _openLabs(initialSection: 1),
-        onShop: _openShop,
         onNews: _openNews,
         onFirstAid: _openFirstAid,
         onVoiceAssistant: _openVoiceAssistant,
@@ -1353,7 +1352,6 @@ class HomePage extends StatelessWidget {
     required this.onHospitalVisits,
     required this.onLabs,
     required this.onReports,
-    required this.onShop,
     required this.onNews,
     required this.onFirstAid,
     required this.onVoiceAssistant,
@@ -1372,7 +1370,6 @@ class HomePage extends StatelessWidget {
   final VoidCallback onHospitalVisits;
   final VoidCallback onLabs;
   final VoidCallback onReports;
-  final VoidCallback onShop;
   final VoidCallback onNews;
   final VoidCallback onFirstAid;
   final VoidCallback onVoiceAssistant;
@@ -1410,8 +1407,8 @@ class HomePage extends StatelessWidget {
       ),
       _HomeFeature(
         Icons.medical_services_outlined,
-        'First-aid guide',
-        'Simple steps for common situations',
+        'First aid & essentials',
+        'Get care guidance and add issue-specific supplies to your cart',
         onFirstAid,
       ),
       _HomeFeature(
@@ -1437,12 +1434,6 @@ class HomePage extends StatelessWidget {
         'Family guardian',
         'Manage profiles with permission',
         onFamilyGuardian,
-      ),
-      _HomeFeature(
-        Icons.shopping_bag_outlined,
-        'Health essentials',
-        'Everyday first-aid supplies',
-        onShop,
       ),
       _HomeFeature(
         Icons.newspaper_outlined,
