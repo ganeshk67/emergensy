@@ -5,7 +5,6 @@ import 'package:emergensy/widgets/centered_content.dart';
 import 'package:emergensy/widgets/feature_hero_icon.dart';
 import 'package:emergensy/widgets/section_backdrop.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 typedef ProfileSaveCallback = Future<bool> Function(Map<String, Object?> data);

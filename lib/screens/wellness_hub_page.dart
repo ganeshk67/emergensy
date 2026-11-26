@@ -597,7 +597,13 @@ class _WellnessHubPageState extends State<WellnessHubPage> {
           if (open.length == 2) {
             final pair = open.toList();
             if (values[pair[0]] == values[pair[1]]) { matched.addAll(pair); open.clear(); }
-            else Future<void>.delayed(const Duration(milliseconds: 650), () { if (context.mounted) update(() => open.clear()); });
+            else {
+              Future<void>.delayed(const Duration(milliseconds: 650), () {
+                if (context.mounted) {
+                  update(() => open.clear());
+                }
+              });
+            }
           }
         }, child: Container(decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer, borderRadius: BorderRadius.circular(12)), child: Icon(open.contains(index) || matched.contains(index) ? values[index] : Icons.circle_outlined)),
       ))),

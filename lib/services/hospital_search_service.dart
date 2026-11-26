@@ -84,7 +84,7 @@ class HospitalSearchService {
     final results = jsonDecode(response.body);
     if (results is! List || results.isEmpty || results.first is! Map) {
       throw Exception(
-        'No map location found for "${trimmed}". Try a nearby city or area.',
+        'No map location found for "$trimmed". Try a nearby city or area.',
       );
     }
     final result = Map<String, Object?>.from(results.first as Map);

@@ -4120,6 +4120,7 @@ class _EmergencyRequestPageState extends State<EmergencyRequestPage> {
           TextField(
             controller: _hospitalNameController,
             maxLength: 160,
+            onChanged: (_) => setState(() {}),
             textCapitalization: TextCapitalization.words,
             decoration: const InputDecoration(
               labelText: 'Hospital name',
@@ -4130,6 +4131,7 @@ class _EmergencyRequestPageState extends State<EmergencyRequestPage> {
           TextField(
             controller: _hospitalAddressController,
             maxLength: 300,
+            onChanged: (_) => setState(() {}),
             textCapitalization: TextCapitalization.words,
             decoration: const InputDecoration(
               labelText: 'Hospital address',
@@ -4140,11 +4142,33 @@ class _EmergencyRequestPageState extends State<EmergencyRequestPage> {
           TextField(
             controller: _hospitalPhoneController,
             maxLength: 40,
+            onChanged: (_) => setState(() {}),
             keyboardType: TextInputType.phone,
             decoration: const InputDecoration(
               labelText: 'Hospital phone',
               prefixIcon: Icon(Icons.call_outlined),
             ),
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 8,
+            children: [
+              TextButton.icon(
+                onPressed: _hospitalPhoneController.text.trim().isEmpty
+                    ? null
+                    : _callHospital,
+                icon: const Icon(Icons.call_outlined),
+                label: const Text('Call hospital'),
+              ),
+              TextButton.icon(
+                onPressed: _hospitalNameController.text.trim().isEmpty &&
+                        _hospitalAddressController.text.trim().isEmpty
+                    ? null
+                    : _openHospitalDirections,
+                icon: const Icon(Icons.directions_outlined),
+                label: const Text('Directions'),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           TextField(
@@ -4256,6 +4280,40 @@ class _EmergencyRequestPageState extends State<EmergencyRequestPage> {
     } catch (error) {
       if (!mounted) return;
       _showMessage('Unable to open the map: $error');
+    }
+  }
+
+  Future<void> _openHospitalDirections() async {
+    final hospital = _hospitalNameController.text.trim();
+    final address = _hospitalAddressController.text.trim();
+    final query = [hospital, address]
+        .where((part) => part.isNotEmpty)
+        .join(', ');
+    final uri = Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': query,
+    });
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw Exception('No maps app could open this hospital.');
+      }
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('Unable to open hospital directions: $error');
+    }
+  }
+
+  Future<void> _callHospital() async {
+    final phone = _hospitalPhoneController.text.trim();
+    final dialable = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (dialable.isEmpty) return;
+    try {
+      if (!await launchUrl(Uri(scheme: 'tel', path: dialable))) {
+        throw Exception('No phone app could place this call.');
+      }
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('Unable to call the hospital: $error');
     }
   }
 
@@ -5846,6 +5904,7 @@ class FirstAidPage extends StatelessWidget {
           'If someone cannot cough, breathe, or speak, call emergency services '
           'and follow instructions from the dispatcher. If they become '
           'unresponsive, begin CPR only if you are trained or guided to do so.',
+      productIds: [],
       essentialsNote:
           'No shop item is recommended. Call 112 and follow the dispatcher’s instructions.',
     ),
@@ -5858,6 +5917,7 @@ class FirstAidPage extends StatelessWidget {
           'Do not give food or drink if they are unconscious or not fully alert. '
           'Call emergency services if they do not recover quickly or have '
           'chest pain, trouble breathing, or an injury.',
+      productIds: [],
       essentialsNote:
           'No shop item is recommended. Focus on keeping the person safe and monitoring them.',
     ),
@@ -5986,6 +6046,7 @@ class _AidCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
       ),
       child: ExpansionTile(
+        initiallyExpanded: true,
         leading: CircleAvatar(
           backgroundColor: _surfaceRaised,
           child: Icon(guide.icon, color: _teal),
